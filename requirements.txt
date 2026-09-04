@@ -1,0 +1,3 @@
+# Cryocon 22C Temperature Controller Dependencies
+pyserial>=3.5
+matplotlib>=3.5.0
