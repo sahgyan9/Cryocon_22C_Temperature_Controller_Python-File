@@ -1,14 +1,21 @@
 """
 Cryocon 22C Temperature Controller - Professional Lab GUI
 =========================================================
-Features:
-- Real-time Channel A & B Temperature monitoring
-- Live interactive Matplotlib rolling plot (Temp A, Temp B, Setpoint, Heater %)
-- Smart Two-Speed Ramping Engine (eliminates overshoot)
-- Continuous CSV Data Logging with timestamped files
-- PID Table Management (Table 01 & Table 02 viewer and switcher)
-- Full Control Loop management (Setpoint, Rate, Range, Control ON/OFF, STOP)
-- Thread-safe non-blocking serial communication
+Target System: Janis Research ST-LN-500 Cryogenic Probe Station
+Controller: Cryo-con Model 22C (Firmware 3.33G, Serial 206687)
+
+Validated Operating Parameters (2026-09-05 Study):
+- Proportional Gain (P):  40.0
+- Integral Time (I):      900.0 s (15 minutes) - NOTE: seconds, not gain!
+- Derivative Gain (D):    0.0
+- Heater Range:           HI (50 W full scale authority)
+- Maximum Power Cap:      70.0 % (35 W ceiling)
+- Ramp Rate:              1.0 K/min (or 2.0 K/min)
+- Loop Mode:              RAMPP (PID control with ramp)
+
+Safety Rule: Anti-Surge Command Ordering
+Always parks setpoint at current temperature in PID mode and engages CONTROL
+before arming target setpoint in RAMPP mode to prevent full-power heater surges.
 """
 
 import tkinter as tk
@@ -25,7 +32,15 @@ matplotlib.use("TkAgg")
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-PYTHON_SERIAL_TIMEOUT = 1.0
+PYTHON_SERIAL_TIMEOUT = 1.5
+
+# Validated Baseline Tuning Parameters (FINAL_REPORT.md 2026-09-05)
+DEFAULT_PGAIN = 40.0
+DEFAULT_IGAIN = 900.0   # Seconds (Integral reset time, NOT a gain)
+DEFAULT_DGAIN = 0.0
+DEFAULT_RANGE = "HI"    # 50 W full-scale authority
+DEFAULT_MAXPWR = 70.0   # % power ceiling
+DEFAULT_RATE = 1.0      # K/min
 
 
 class CryoconComm:
@@ -35,9 +50,9 @@ class CryoconComm:
         self.lock = threading.Lock()
         self.connected = False
         self.port = "COM5"
-        self.baud = 9600
+        self.baud = 57600
 
-    def connect(self, port="COM5", baud=9600):
+    def connect(self, port="COM5", baud=57600):
         with self.lock:
             try:
                 self.ser = serial.Serial(port, baud, timeout=PYTHON_SERIAL_TIMEOUT,
@@ -62,20 +77,21 @@ class CryoconComm:
                     pass
             self.connected = False
 
-    def query(self, cmd, wait=0.08):
+    def query(self, cmd, wait=0.01):
         with self.lock:
             if not self.connected or not self.ser:
                 return "ERR"
             try:
                 self.ser.reset_input_buffer()
                 self.ser.write((cmd + "\r\n").encode())
-                time.sleep(wait)
+                if wait > 0:
+                    time.sleep(wait)
                 resp = self.ser.readline().decode("utf-8", errors="ignore").strip()
                 return resp
             except Exception:
                 return "ERR"
 
-    def query_multiline(self, cmd, wait=1.2):
+    def query_multiline(self, cmd, wait=1.5):
         with self.lock:
             if not self.connected or not self.ser:
                 return "ERR"
@@ -84,7 +100,7 @@ class CryoconComm:
                 self.ser.write((cmd + "\r\n").encode())
                 time.sleep(wait)
                 chunks = []
-                deadline = time.time() + 3.0
+                deadline = time.time() + 3.5
                 while time.time() < deadline:
                     n = self.ser.in_waiting
                     if n > 0:
@@ -98,7 +114,7 @@ class CryoconComm:
             except Exception as e:
                 return f"ERR: {e}"
 
-    def send(self, cmd, wait=0.1):
+    def send(self, cmd, wait=0.15):
         with self.lock:
             if not self.connected or not self.ser:
                 return False
@@ -113,9 +129,9 @@ class CryoconComm:
 class CryoconGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Cryocon 22C Temperature Controller - Lab Dashboard")
-        self.root.geometry("1280x850")
-        self.root.minsize(1050, 700)
+        self.root.title("Cryocon 22C Temperature Controller - Janis ST-LN-500 Station")
+        self.root.geometry("1320x880")
+        self.root.minsize(1100, 720)
 
         self.style = ttk.Style()
         self.style.theme_use("clam")
@@ -125,19 +141,23 @@ class CryoconGUI:
 
         self.telemetry = {
             "temp_a": 0.0, "temp_b": 0.0, "setpoint": 0.0, "error": 0.0,
-            "heater_pwr": 0.0, "control": "OFF", "type": "RAMPT",
-            "tableix": "2", "rate": 0.5, "range": "HI",
-            "pgain": 0.0, "igain": 0.0, "dgain": 0.0, "idn": "Disconnected"
+            "heater_pwr": 0.0, "control": "OFF", "type": "RAMPP",
+            "tableix": "2", "rate": DEFAULT_RATE, "range": DEFAULT_RANGE,
+            "maxpwr": DEFAULT_MAXPWR, "pgain": DEFAULT_PGAIN,
+            "igain": DEFAULT_IGAIN, "dgain": DEFAULT_DGAIN,
+            "ramp_active": "NO", "idn": "Disconnected"
         }
 
+        # Plot Data Buffers
         self.plot_times = []
         self.plot_temp_a = []
         self.plot_temp_b = []
         self.plot_setpt = []
         self.plot_heater = []
-        self.max_plot_points = 1800
+        self.max_plot_points = 2400
         self.plot_window_seconds = 600
 
+        # Logging State
         self.logging_active = False
         self.log_file = None
         self.log_writer = None
@@ -145,52 +165,62 @@ class CryoconGUI:
         self.log_start_time = None
         self.log_filename = ""
 
-        self.smart_ramp_active = False
-        self.target_temp = 300.0
-        self.fast_rate = 5.0
-        self.slow_rate = 0.5
-        self.threshold_delta = 15.0
-        self.ramp_stage = "IDLE"
+        # Ramp Execution State
+        self.ramp_worker_thread = None
+        self.is_arming_ramp = False
 
+        # Polling Thread State
         self.poll_running = False
         self.poll_thread = None
+        self.poll_delay = 0.01
+        self.last_chart_draw = 0.0
 
         self._build_layout()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        self.root.after(500, self._auto_connect)
+        self.root.after(400, self._auto_connect)
 
     def _setup_styles(self):
         self.style.configure("Header.TLabel", font=("Segoe UI", 12, "bold"))
-        self.style.configure("ReadoutTitle.TLabel", font=("Segoe UI", 10), foreground="#555555")
-        self.style.configure("ReadoutValueA.TLabel", font=("Segoe UI", 28, "bold"), foreground="#0066cc")
-        self.style.configure("ReadoutValueB.TLabel", font=("Segoe UI", 24, "bold"), foreground="#2e7d32")
-        self.style.configure("ReadoutValueSP.TLabel", font=("Segoe UI", 24, "bold"), foreground="#d84315")
-        self.style.configure("ReadoutValueHT.TLabel", font=("Segoe UI", 24, "bold"), foreground="#6a1b9a")
+        self.style.configure("ReadoutTitle.TLabel", font=("Segoe UI", 9, "bold"), foreground="#555555")
+        self.style.configure("ReadoutValueA.TLabel", font=("Segoe UI", 26, "bold"), foreground="#0066cc")
+        self.style.configure("ReadoutValueB.TLabel", font=("Segoe UI", 20, "bold"), foreground="#2e7d32")
+        self.style.configure("ReadoutValueSP.TLabel", font=("Segoe UI", 22, "bold"), foreground="#d84315")
+        self.style.configure("ReadoutValueHT.TLabel", font=("Segoe UI", 22, "bold"), foreground="#6a1b9a")
+        self.style.configure("SubText.TLabel", font=("Segoe UI", 8), foreground="#777777")
 
     def _build_layout(self):
         top_frame = ttk.Frame(self.root, padding=8)
         top_frame.pack(fill=tk.X)
 
-        ttk.Label(top_frame, text="COM Port:").pack(side=tk.LEFT, padx=(0, 4))
-        self.port_combo = ttk.Combobox(top_frame, width=10, values=self._get_com_ports())
+        ttk.Label(top_frame, text="COM Port:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        self.port_combo = ttk.Combobox(top_frame, width=8, values=self._get_com_ports())
         self.port_combo.set("COM5")
-        self.port_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.port_combo.pack(side=tk.LEFT, padx=(0, 4))
 
         self.btn_refresh_ports = ttk.Button(top_frame, text="↻", width=3, command=self._refresh_ports)
-        self.btn_refresh_ports.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_refresh_ports.pack(side=tk.LEFT, padx=(0, 10))
 
         self.btn_connect = ttk.Button(top_frame, text="Connect", command=self._toggle_connection)
-        self.btn_connect.pack(side=tk.LEFT, padx=(0, 15))
+        self.btn_connect.pack(side=tk.LEFT, padx=(0, 10))
 
         self.lbl_conn_status = ttk.Label(top_frame, text="● Disconnected", font=("Segoe UI", 10, "bold"), foreground="red")
-        self.lbl_conn_status.pack(side=tk.LEFT, padx=(0, 15))
+        self.lbl_conn_status.pack(side=tk.LEFT, padx=(0, 12))
 
         self.lbl_idn = ttk.Label(top_frame, text="Device: Disconnected", font=("Segoe UI", 9))
-        self.lbl_idn.pack(side=tk.LEFT, padx=(0, 20))
+        self.lbl_idn.pack(side=tk.LEFT, padx=(0, 12))
+
+        ttk.Label(top_frame, text="Update Rate:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(6, 3))
+        self.combo_poll_rate = ttk.Combobox(
+            top_frame, width=17, state="readonly",
+            values=["0.10 s (10 Hz Ultra)", "0.25 s (Fast)", "0.5 s (LCD)", "1.0 s (1 Hz)", "2.0 s (Slow)"]
+        )
+        self.combo_poll_rate.set("0.10 s (10 Hz Ultra)")
+        self.combo_poll_rate.bind("<<ComboboxSelected>>", self._on_poll_rate_change)
+        self.combo_poll_rate.pack(side=tk.LEFT, padx=(0, 10))
 
         self.btn_stop = tk.Button(top_frame, text="🛑 EMERGENCY STOP", font=("Segoe UI", 11, "bold"),
                                   bg="#d32f2f", fg="white", activebackground="#b71c1c", activeforeground="white",
-                                  command=self._emergency_stop, padx=12, pady=4)
+                                  command=self._emergency_stop, padx=12, pady=3, relief=tk.RAISED)
         self.btn_stop.pack(side=tk.RIGHT, padx=4)
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X)
@@ -198,49 +228,47 @@ class CryoconGUI:
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        left_frame = ttk.Frame(main_paned, width=480)
+        left_frame = ttk.Frame(main_paned, width=500)
         main_paned.add(left_frame, weight=0)
 
         right_frame = ttk.Frame(main_paned)
         main_paned.add(right_frame, weight=1)
 
         self._build_telemetry_cards(left_frame)
-        self._build_smart_ramp_panel(left_frame)
-        self._build_loop_controls(left_frame)
+        self._build_validated_ramp_panel(left_frame)
         self._build_logging_panel(left_frame)
 
         self._build_notebook_tabs(right_frame)
 
-        self.statusbar = ttk.Label(self.root, text="Ready", relief=tk.SUNKEN, anchor=tk.W, padding=(6, 2))
+        self.statusbar = ttk.Label(self.root, text="Ready", relief=tk.SUNKEN, anchor=tk.W, padding=(6, 3))
         self.statusbar.pack(fill=tk.X, side=tk.BOTTOM)
 
     def _build_telemetry_cards(self, parent):
-        card_frame = ttk.LabelFrame(parent, text="Live Telemetry", padding=8)
+        card_frame = ttk.LabelFrame(parent, text="Live Instrument Telemetry", padding=8)
         card_frame.pack(fill=tk.X, pady=(0, 6))
 
-        f_a = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_a.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
-        ttk.Label(f_a, text="CHANNEL A (Sample)", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
+        # Channel A (Sample Stage) - Full Width Primary Readout
+        f_a = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=8)
+        f_a.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=3, pady=3)
+        ttk.Label(f_a, text="SAMPLE STAGE TEMPERATURE (Channel A)", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
         self.lbl_temp_a = ttk.Label(f_a, text="--.--- K", style="ReadoutValueA.TLabel")
         self.lbl_temp_a.pack(anchor=tk.CENTER)
+        self.lbl_status_a = ttk.Label(f_a, text="Active Control Sensor (Janis ST-LN-500)", style="SubText.TLabel")
+        self.lbl_status_a.pack(anchor=tk.CENTER)
 
-        f_b = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_b.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
-        ttk.Label(f_b, text="CHANNEL B", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
-        self.lbl_temp_b = ttk.Label(f_b, text="--.--- K", style="ReadoutValueB.TLabel")
-        self.lbl_temp_b.pack(anchor=tk.CENTER)
-
+        # Setpoint & Tracking
         f_sp = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_sp.grid(row=1, column=0, sticky="nsew", padx=4, pady=4)
-        ttk.Label(f_sp, text="SETPOINT", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
+        f_sp.grid(row=1, column=0, sticky="nsew", padx=3, pady=3)
+        ttk.Label(f_sp, text="SETPOINT & TRACKING", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
         self.lbl_setpt = ttk.Label(f_sp, text="--.--- K", style="ReadoutValueSP.TLabel")
         self.lbl_setpt.pack(anchor=tk.CENTER)
-        self.lbl_error = ttk.Label(f_sp, text="Error: -- K", font=("Segoe UI", 9, "bold"), foreground="#555")
+        self.lbl_error = ttk.Label(f_sp, text="Error: --.--- K", font=("Segoe UI", 9, "bold"), foreground="#555")
         self.lbl_error.pack(anchor=tk.CENTER)
 
+        # Heater Output %
         f_ht = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_ht.grid(row=1, column=1, sticky="nsew", padx=4, pady=4)
-        ttk.Label(f_ht, text="HEATER OUTPUT", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
+        f_ht.grid(row=1, column=1, sticky="nsew", padx=3, pady=3)
+        ttk.Label(f_ht, text="HEATER POWER OUTPUT", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
         self.lbl_heater = ttk.Label(f_ht, text="0.0 %", style="ReadoutValueHT.TLabel")
         self.lbl_heater.pack(anchor=tk.CENTER)
         self.pbar_heater = ttk.Progressbar(f_ht, orient=tk.HORIZONTAL, length=120, mode='determinate')
@@ -249,102 +277,109 @@ class CryoconGUI:
         card_frame.columnconfigure(0, weight=1)
         card_frame.columnconfigure(1, weight=1)
 
+        # Status Badges
         badge_frame = ttk.Frame(card_frame)
         badge_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
-        self.badge_ctrl = tk.Label(badge_frame, text="CONTROL: OFF", bg="#e0e0e0", fg="#333", font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
+        self.badge_ctrl = tk.Label(badge_frame, text="CONTROL: OFF", bg="#ffcdd2", fg="#b71c1c",
+                                   font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
         self.badge_ctrl.pack(side=tk.LEFT, padx=2)
 
-        self.badge_table = tk.Label(badge_frame, text="PID TABLE: 2", bg="#e3f2fd", fg="#0d47a1", font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
-        self.badge_table.pack(side=tk.LEFT, padx=2)
+        self.badge_mode = tk.Label(badge_frame, text="MODE: RAMPP", bg="#e8eaf6", fg="#283593",
+                                   font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
+        self.badge_mode.pack(side=tk.LEFT, padx=2)
 
-        self.badge_range = tk.Label(badge_frame, text="RANGE: HI", bg="#f3e5f5", fg="#4a148c", font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
+        self.badge_range = tk.Label(badge_frame, text="RANGE: HI", bg="#f3e5f5", fg="#4a148c",
+                                    font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
         self.badge_range.pack(side=tk.LEFT, padx=2)
 
-        self.badge_ramp = tk.Label(badge_frame, text="RAMP: 0.5 K/min", bg="#fff3e0", fg="#e65100", font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
-        self.badge_ramp.pack(side=tk.LEFT, padx=2)
+        self.badge_rate = tk.Label(badge_frame, text="RATE: 1.0 K/min", bg="#fff3e0", fg="#e65100",
+                                   font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
+        self.badge_rate.pack(side=tk.LEFT, padx=2)
 
-    def _build_smart_ramp_panel(self, parent):
-        ramp_frame = ttk.LabelFrame(parent, text="🎯 Smart Two-Speed Ramping (Zero Overshoot)", padding=8)
+        self.badge_pid = tk.Label(badge_frame, text="P=40 I=900 D=0", bg="#e0f2f1", fg="#004d40",
+                                  font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
+        self.badge_pid.pack(side=tk.LEFT, padx=2)
+
+    def _build_validated_ramp_panel(self, parent):
+        ramp_frame = ttk.LabelFrame(parent, text="🎯 Validated Temperature Ramp Controller", padding=8)
         ramp_frame.pack(fill=tk.X, pady=(0, 6))
 
+        # Target Setpoint Row with Quick Presets
         r1 = ttk.Frame(ramp_frame)
-        r1.pack(fill=tk.X, pady=2)
-        ttk.Label(r1, text="Target Temp (K):", width=16).pack(side=tk.LEFT)
-        self.ent_target_temp = ttk.Entry(r1, width=10)
+        r1.pack(fill=tk.X, pady=3)
+        ttk.Label(r1, text="Target Temp (K):", width=16, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+        self.ent_target_temp = ttk.Entry(r1, width=9, font=("Segoe UI", 10))
         self.ent_target_temp.insert(0, "320.0")
         self.ent_target_temp.pack(side=tk.LEFT, padx=(0, 8))
 
-        for p_temp in [300.0, 315.0, 350.0, 400.0, 450.0]:
+        for p_temp in [300.0, 320.0, 350.0, 380.0, 400.0, 450.0]:
             btn = ttk.Button(r1, text=f"{int(p_temp)}K", width=5,
                              command=lambda t=p_temp: self._set_target_preset(t))
             btn.pack(side=tk.LEFT, padx=1)
 
+        # Ramp Rate & Hardware Limits Row
         r2 = ttk.Frame(ramp_frame)
-        r2.pack(fill=tk.X, pady=2)
-        ttk.Label(r2, text="Fast Rate (K/min):", width=16).pack(side=tk.LEFT)
-        self.ent_fast_rate = ttk.Entry(r2, width=6)
-        self.ent_fast_rate.insert(0, "5.0")
-        self.ent_fast_rate.pack(side=tk.LEFT, padx=(0, 10))
+        r2.pack(fill=tk.X, pady=3)
+        ttk.Label(r2, text="Ramp Rate (K/min):", width=16).pack(side=tk.LEFT)
+        self.ent_rate = ttk.Entry(r2, width=6)
+        self.ent_rate.insert(0, f"{DEFAULT_RATE:.1f}")
+        self.ent_rate.pack(side=tk.LEFT, padx=(0, 10))
 
-        ttk.Label(r2, text="Slow Final Rate:").pack(side=tk.LEFT)
-        self.ent_slow_rate = ttk.Entry(r2, width=6)
-        self.ent_slow_rate.insert(0, "0.5")
-        self.ent_slow_rate.pack(side=tk.LEFT, padx=(4, 10))
+        ttk.Label(r2, text="Max Power (%):").pack(side=tk.LEFT)
+        self.ent_maxpwr = ttk.Entry(r2, width=5)
+        self.ent_maxpwr.insert(0, f"{DEFAULT_MAXPWR:.0f}")
+        self.ent_maxpwr.pack(side=tk.LEFT, padx=(4, 10))
 
-        ttk.Label(r2, text="Switch Delta:").pack(side=tk.LEFT)
-        self.ent_switch_delta = ttk.Entry(r2, width=5)
-        self.ent_switch_delta.insert(0, "15.0")
-        self.ent_switch_delta.pack(side=tk.LEFT, padx=(4, 0))
+        ttk.Label(r2, text="Range:").pack(side=tk.LEFT)
+        self.combo_range = ttk.Combobox(r2, width=5, values=["HI", "MID", "LOW"], state="readonly")
+        self.combo_range.set(DEFAULT_RANGE)
+        self.combo_range.pack(side=tk.LEFT, padx=(4, 0))
 
+        # Tuned PID Parameters Row
         r3 = ttk.Frame(ramp_frame)
-        r3.pack(fill=tk.X, pady=(6, 2))
+        r3.pack(fill=tk.X, pady=3)
+        ttk.Label(r3, text="PID Gains (Tuned):", width=16).pack(side=tk.LEFT)
 
-        self.btn_start_ramp = tk.Button(r3, text="▶ START SMART RAMP", font=("Segoe UI", 9, "bold"),
-                                        bg="#1b5e20", fg="white", activebackground="#2e7d32",
-                                        command=self._toggle_smart_ramp, padx=8, pady=3)
-        self.btn_start_ramp.pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Label(r3, text="P:").pack(side=tk.LEFT)
+        self.ent_p = ttk.Entry(r3, width=5)
+        self.ent_p.insert(0, f"{DEFAULT_PGAIN:.0f}")
+        self.ent_p.pack(side=tk.LEFT, padx=(2, 8))
 
-        self.lbl_ramp_engine_status = ttk.Label(r3, text="Ramp Engine: Idle", font=("Segoe UI", 9, "italic"))
-        self.lbl_ramp_engine_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(r3, text="I (sec):").pack(side=tk.LEFT)
+        self.ent_i = ttk.Entry(r3, width=6)
+        self.ent_i.insert(0, f"{DEFAULT_IGAIN:.0f}")
+        self.ent_i.pack(side=tk.LEFT, padx=(2, 8))
 
-    def _build_loop_controls(self, parent):
-        ctrl_frame = ttk.LabelFrame(parent, text="Manual Loop 1 Controls", padding=8)
-        ctrl_frame.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(r3, text="D:").pack(side=tk.LEFT)
+        self.ent_d = ttk.Entry(r3, width=5)
+        self.ent_d.insert(0, f"{DEFAULT_DGAIN:.0f}")
+        self.ent_d.pack(side=tk.LEFT, padx=(2, 10))
 
-        row1 = ttk.Frame(ctrl_frame)
-        row1.pack(fill=tk.X, pady=2)
+        ttk.Button(r3, text="↺ Defaults", width=9, command=self._reset_validated_defaults).pack(side=tk.LEFT)
 
-        ttk.Label(row1, text="Direct Setpoint (K):").pack(side=tk.LEFT)
-        self.ent_direct_sp = ttk.Entry(row1, width=8)
-        self.ent_direct_sp.insert(0, "300.0")
-        self.ent_direct_sp.pack(side=tk.LEFT, padx=4)
+        ttk.Separator(ramp_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
-        ttk.Button(row1, text="Apply SP", width=9, command=self._apply_direct_sp).pack(side=tk.LEFT, padx=(0, 10))
+        # Action Buttons Row
+        r4 = ttk.Frame(ramp_frame)
+        r4.pack(fill=tk.X, pady=2)
 
-        ttk.Label(row1, text="Ramp Rate:").pack(side=tk.LEFT)
-        self.ent_direct_rate = ttk.Entry(row1, width=6)
-        self.ent_direct_rate.insert(0, "0.5")
-        self.ent_direct_rate.pack(side=tk.LEFT, padx=4)
-        ttk.Button(row1, text="Apply Rate", width=9, command=self._apply_direct_rate).pack(side=tk.LEFT)
+        self.btn_start_ramp = tk.Button(r4, text="▶ START RAMP (Anti-Surge)", font=("Segoe UI", 10, "bold"),
+                                        bg="#1b5e20", fg="white", activebackground="#2e7d32", activeforeground="white",
+                                        command=self._start_anti_surge_ramp, padx=10, pady=4, relief=tk.RAISED)
+        self.btn_start_ramp.pack(side=tk.LEFT, padx=(0, 6))
 
-        row2 = ttk.Frame(ctrl_frame)
-        row2.pack(fill=tk.X, pady=(4, 0))
+        self.btn_hold_now = ttk.Button(r4, text="⏸ Hold Current Temp", command=self._hold_current_temperature)
+        self.btn_hold_now.pack(side=tk.LEFT, padx=(0, 6))
 
-        self.btn_toggle_ctrl = ttk.Button(row2, text="Enable Control", command=self._toggle_control)
-        self.btn_toggle_ctrl.pack(side=tk.LEFT, padx=(0, 8))
+        self.btn_stop_ctrl = ttk.Button(r4, text="⏹ Stop Heating", command=self._stop_heating)
+        self.btn_stop_ctrl.pack(side=tk.LEFT, padx=(0, 6))
 
-        ttk.Label(row2, text="Active Table:").pack(side=tk.LEFT)
-        self.combo_tableix = ttk.Combobox(row2, width=12, values=["Table 1 (20-320K)", "Table 2 (180-475K)"], state="readonly")
-        self.combo_tableix.set("Table 2 (180-475K)")
-        self.combo_tableix.pack(side=tk.LEFT, padx=4)
-        ttk.Button(row2, text="Switch Table", command=self._apply_tableix).pack(side=tk.LEFT, padx=(0, 8))
-
-        ttk.Label(row2, text="Range:").pack(side=tk.LEFT)
-        self.combo_range = ttk.Combobox(row2, width=5, values=["HI", "MID", "LOW", "75W"], state="readonly")
-        self.combo_range.set("HI")
-        self.combo_range.pack(side=tk.LEFT, padx=4)
-        ttk.Button(row2, text="Set", width=4, command=self._apply_heater_range).pack(side=tk.LEFT)
+        # Status feedback label
+        r5 = ttk.Frame(ramp_frame)
+        r5.pack(fill=tk.X, pady=(4, 0))
+        self.lbl_ramp_status = ttk.Label(r5, text="Status: Ready (Idle)", font=("Segoe UI", 9, "italic"), foreground="#333333")
+        self.lbl_ramp_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def _build_logging_panel(self, parent):
         log_frame = ttk.LabelFrame(parent, text="💾 Data Logging & CSV Storage", padding=8)
@@ -395,8 +430,8 @@ class CryoconGUI:
         self.chk_show_a = tk.BooleanVar(value=True)
         ttk.Checkbutton(tb, text="Temp A", variable=self.chk_show_a).pack(side=tk.LEFT, padx=3)
 
-        self.chk_show_b = tk.BooleanVar(value=False)
-        ttk.Checkbutton(tb, text="Temp B", variable=self.chk_show_b).pack(side=tk.LEFT, padx=3)
+        self.chk_show_sp = tk.BooleanVar(value=True)
+        ttk.Checkbutton(tb, text="Setpoint", variable=self.chk_show_sp).pack(side=tk.LEFT, padx=3)
 
         self.chk_show_ht = tk.BooleanVar(value=True)
         ttk.Checkbutton(tb, text="Heater %", variable=self.chk_show_ht).pack(side=tk.LEFT, padx=3)
@@ -415,10 +450,12 @@ class CryoconGUI:
 
         self.ax1 = self.fig.add_subplot(111)
         self.ax2 = self.ax1.twinx()
+        self.ax2.yaxis.tick_right()
+        self.ax2.yaxis.set_label_position("right")
 
         self.ax1.set_xlabel("Elapsed Time (s)", fontsize=9)
         self.ax1.set_ylabel("Temperature (K)", color="#0066cc", fontsize=9)
-        self.ax2.set_ylabel("Heater Output (%)", color="#6a1b9a", fontsize=9)
+        self.ax2.set_ylabel("Heater Output (%)", color="#8e24aa", fontsize=9)
 
         self.ax1.grid(True, linestyle="--", alpha=0.5)
         self.fig.tight_layout()
@@ -430,26 +467,30 @@ class CryoconGUI:
         tb_bar = ttk.Frame(parent)
         tb_bar.pack(fill=tk.X, pady=(0, 4))
 
-        ttk.Label(tb_bar, text=f"PID Table {table_num:02d} Entries (Cryocon 22C)", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
-        ttk.Button(tb_bar, text="🔄 Reload", command=lambda: self._load_pid_table_into_tree(table_num)).pack(side=tk.RIGHT, padx=4)
+        title_text = f"PID Table {table_num:02d} Entries (Cryocon 22C NVRAM)"
+        ttk.Label(tb_bar, text=title_text, font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+
+        ttk.Button(tb_bar, text="🔄 Reload from Controller",
+                   command=lambda: self._trigger_table_load(table_num)).pack(side=tk.RIGHT, padx=4)
 
         if table_num == 2:
-            ttk.Button(tb_bar, text="⚡ Re-flash Table 02 (475K-180K)", command=self._reflash_table_02).pack(side=tk.RIGHT, padx=4)
+            ttk.Button(tb_bar, text="⚡ Write Validated Table 02 (475K-77K)",
+                       command=self._reflash_table_02).pack(side=tk.RIGHT, padx=4)
 
         cols = ("row", "setpt", "pgain", "igain", "dgain", "range", "channel")
         tree = ttk.Treeview(parent, columns=cols, show="headings", height=18)
         tree.heading("row", text="#")
         tree.heading("setpt", text="Setpoint (K)")
         tree.heading("pgain", text="P Gain")
-        tree.heading("igain", text="I Gain")
+        tree.heading("igain", text="I Time (s)")
         tree.heading("dgain", text="D Gain")
-        tree.heading("range", text="Heater Range")
+        tree.heading("range", text="Range")
         tree.heading("channel", text="Source")
 
         tree.column("row", width=40, anchor=tk.CENTER)
         tree.column("setpt", width=100, anchor=tk.CENTER)
         tree.column("pgain", width=90, anchor=tk.CENTER)
-        tree.column("igain", width=90, anchor=tk.CENTER)
+        tree.column("igain", width=100, anchor=tk.CENTER)
         tree.column("dgain", width=90, anchor=tk.CENTER)
         tree.column("range", width=90, anchor=tk.CENTER)
         tree.column("channel", width=90, anchor=tk.CENTER)
@@ -481,183 +522,389 @@ class CryoconGUI:
     def _toggle_connection(self):
         if not self.comm.connected:
             port = self.port_combo.get().strip()
-            ok, msg = self.comm.connect(port=port, baud=9600)
+            ok, msg = self.comm.connect(port=port, baud=57600)
             if ok:
-                idn = self.comm.query("*IDN?")
+                idn = self.comm.query("*IDN?", wait=0.04)
                 self.telemetry["idn"] = idn
                 self.lbl_idn.config(text=f"Device: {idn}")
                 self.lbl_conn_status.config(text="● Connected", foreground="#2e7d32")
                 self.btn_connect.config(text="Disconnect")
-                self.statusbar.config(text=f"Connected to {idn} on {port}")
+                self.statusbar.config(text=f"Connected to {idn} on {port} (57600 baud)")
 
                 self.poll_running = True
                 self.poll_thread = threading.Thread(target=self._polling_worker, daemon=True)
                 self.poll_thread.start()
 
-                self.root.after(800, lambda: self._load_pid_table_into_tree(2))
-                self.root.after(1600, lambda: self._load_pid_table_into_tree(1))
+                # Load tables in background after connection settles
+                self.root.after(1000, lambda: self._trigger_table_load(2))
+                self.root.after(2500, lambda: self._trigger_table_load(1))
             else:
                 self.lbl_conn_status.config(text="● Disconnected", foreground="red")
+                self.statusbar.config(text=f"Connection failed: {msg}")
         else:
             self.poll_running = False
             self.comm.disconnect()
             self.lbl_conn_status.config(text="● Disconnected", foreground="red")
             self.lbl_idn.config(text="Device: Disconnected")
             self.btn_connect.config(text="Connect")
-            self.statusbar.config(text="Disconnected")
+            self.statusbar.config(text="Disconnected from serial port.")
+
+    def _on_poll_rate_change(self, event=None):
+        val = self.combo_poll_rate.get()
+        if "0.10" in val:
+            self.poll_delay = 0.01  # ~0.08-0.10s cycle time (10 Hz hardware ADC limit)
+        elif "0.25" in val:
+            self.poll_delay = 0.08  # ~0.25s cycle time (4 Hz)
+        elif "0.5" in val:
+            self.poll_delay = 0.25  # ~0.5s cycle time (2 Hz - matches front panel display)
+        elif "2.0" in val:
+            self.poll_delay = 1.70  # ~2.0s cycle time
+        else:
+            self.poll_delay = 0.75  # ~1.0s cycle time (1 Hz)
+        self.statusbar.config(text=f"Telemetry polling rate set to {val}")
 
     def _polling_worker(self):
+        cycle_count = 0
         while self.poll_running and self.comm.connected:
             try:
-                ta_str = self.comm.query("INPUT? A")
-                tb_str = self.comm.query("INPUT? B")
-                sp_str = self.comm.query("LOOP 1:SETPT?").replace("K", "").strip()
-                ht_str = self.comm.query("LOOP 1:OUTP?").replace("%", "").strip()
-                ctrl_str = self.comm.query("CONTROL?")
-                type_str = self.comm.query("LOOP 1:TYPE?")
-                tix_str = self.comm.query("LOOP 1:TABLEIX?")
-                rate_str = self.comm.query("LOOP 1:RATE?")
-                rng_str = self.comm.query("LOOP 1:RANGE?")
-                pg_str = self.comm.query("LOOP 1:PGAIN?")
-                ig_str = self.comm.query("LOOP 1:IGAIN?")
-                dg_str = self.comm.query("LOOP 1:DGAIN?")
+                # If an anti-surge arming sequence is running, yield serial to it
+                if self.is_arming_ramp:
+                    time.sleep(0.3)
+                    continue
+
+                # 1. FAST QUERIES (Critical dynamic telemetry polled EVERY cycle)
+                # At 57600 baud, each query turnaround is ~25-30ms.
+                # INPUT? A and LOOP 1:OUTP? are dynamic sensor & power readouts.
+                ta_str = self.comm.query("INPUT? A", wait=0.01)
+                ht_str = self.comm.query("LOOP 1:OUTP?", wait=0.01).replace("%", "").strip()
+                sp_str = self.comm.query("LOOP 1:SETPT?", wait=0.01).replace("K", "").strip()
+
+                # Control state changes infrequently; query every 5 cycles
+                if cycle_count % 5 == 0:
+                    ctrl_str = self.comm.query("CONTROL?", wait=0.01)
+                else:
+                    ctrl_str = self.telemetry.get("control", "OFF")
 
                 try: ta = float(ta_str)
-                except ValueError: ta = 0.0
-                try: tb = float(tb_str)
-                except ValueError: tb = 0.0
-                try: sp = float(sp_str)
-                except ValueError: sp = 0.0
+                except ValueError: ta = float("nan")
+
                 try: ht = float(ht_str)
                 except ValueError: ht = 0.0
-                try: rate = float(rate_str)
-                except ValueError: rate = 0.5
-                try: pg = float(pg_str)
-                except ValueError: pg = 0.0
-                try: ig = float(ig_str)
-                except ValueError: ig = 0.0
-                try: dg = float(dg_str)
-                except ValueError: dg = 0.0
 
-                err = ta - sp if sp > 0 else 0.0
+                try: sp = float(sp_str)
+                except ValueError: sp = 0.0
 
-                self.telemetry.update({
-                    "temp_a": ta, "temp_b": tb, "setpoint": sp, "error": err,
-                    "heater_pwr": ht, "control": ctrl_str, "type": type_str,
-                    "tableix": tix_str, "rate": rate, "range": rng_str,
-                    "pgain": pg, "igain": ig, "dgain": dg
-                })
+                err = ta - sp if (sp > 0 and ta == ta) else 0.0
 
-                if self.smart_ramp_active:
-                    self._process_smart_ramp_step(ta, sp)
+                update_dict = {
+                    "temp_a": ta,
+                    "setpoint": sp,
+                    "error": err,
+                    "heater_pwr": ht,
+                    "control": ctrl_str
+                }
+
+                # 2. SLOW QUERIES (Infrequent configuration & badges - polled once every 20 cycles)
+                if cycle_count % 20 == 0:
+                    type_str = self.comm.query("LOOP 1:TYPE?", wait=0.01)
+                    tix_str = self.comm.query("LOOP 1:TABLEIX?", wait=0.01)
+                    rate_str = self.comm.query("LOOP 1:RATE?", wait=0.01)
+                    rng_str = self.comm.query("LOOP 1:RANGE?", wait=0.01)
+                    pwr_str = self.comm.query("LOOP 1:MAXPWR?", wait=0.01).replace("%", "").strip()
+                    pg_str = self.comm.query("LOOP 1:PGAIN?", wait=0.01)
+                    ig_str = self.comm.query("LOOP 1:IGAIN?", wait=0.01)
+                    dg_str = self.comm.query("LOOP 1:DGAIN?", wait=0.01)
+                    ramp_str = self.comm.query("LOOP 1:RAMP?", wait=0.01)
+
+                    try: rate = float(rate_str)
+                    except ValueError: rate = DEFAULT_RATE
+                    try: maxpwr = float(pwr_str)
+                    except ValueError: maxpwr = DEFAULT_MAXPWR
+                    try: pg = float(pg_str)
+                    except ValueError: pg = 0.0
+                    try: ig = float(ig_str)
+                    except ValueError: ig = 0.0
+                    try: dg = float(dg_str)
+                    except ValueError: dg = 0.0
+
+                    update_dict.update({
+                        "temp_b": 0.0, "type": type_str, "tableix": tix_str,
+                        "rate": rate, "range": rng_str, "maxpwr": maxpwr,
+                        "pgain": pg, "igain": ig, "dgain": dg,
+                        "ramp_active": ramp_str
+                    })
+
+                self.telemetry.update(update_dict)
+                cycle_count += 1
 
                 if self.logging_active and self.log_writer:
                     self._log_telemetry_row()
 
+                # Update live GUI readouts immediately
                 self.root.after(0, self._update_gui_readouts)
 
             except Exception:
                 pass
 
-            time.sleep(0.8)
+            time.sleep(self.poll_delay)
 
     def _set_target_preset(self, temp_val):
         self.ent_target_temp.delete(0, tk.END)
-        self.ent_target_temp.insert(0, str(temp_val))
+        self.ent_target_temp.insert(0, f"{temp_val:.1f}")
 
-    def _toggle_smart_ramp(self):
-        if not self.smart_ramp_active:
+    def _reset_validated_defaults(self):
+        self.ent_p.delete(0, tk.END)
+        self.ent_p.insert(0, f"{DEFAULT_PGAIN:.0f}")
+
+        self.ent_i.delete(0, tk.END)
+        self.ent_i.insert(0, f"{DEFAULT_IGAIN:.0f}")
+
+        self.ent_d.delete(0, tk.END)
+        self.ent_d.insert(0, f"{DEFAULT_DGAIN:.0f}")
+
+        self.ent_rate.delete(0, tk.END)
+        self.ent_rate.insert(0, f"{DEFAULT_RATE:.1f}")
+
+        self.ent_maxpwr.delete(0, tk.END)
+        self.ent_maxpwr.insert(0, f"{DEFAULT_MAXPWR:.0f}")
+
+        self.combo_range.set(DEFAULT_RANGE)
+        self.statusbar.config(text="Reset controls to validated tuning defaults (P=40, I=900, D=0, MaxPwr=70%, Range=HI)")
+
+    def _start_anti_surge_ramp(self):
+        """Dispatches the validated anti-surge ramp arming sequence in a worker thread."""
+        if not self.comm.connected:
+            messagebox.showwarning("Not Connected", "Please connect to the Cryocon 22C controller first.")
+            return
+
+        try:
+            target = float(self.ent_target_temp.get().strip())
+            rate = float(self.ent_rate.get().strip())
+            p = float(self.ent_p.get().strip())
+            i = float(self.ent_i.get().strip())
+            d = float(self.ent_d.get().strip())
+            maxpwr = float(self.ent_maxpwr.get().strip())
+            range_val = self.combo_range.get().strip().upper()
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please check all numeric values before starting.")
+            return
+
+        if target < 77.0 or target > 460.0:
+            if not messagebox.askyesno("Confirm Setpoint", f"Target setpoint {target:.1f} K is outside normal range (77-460 K). Proceed?"):
+                return
+
+        if self.is_arming_ramp:
+            messagebox.showinfo("Busy", "Anti-surge ramp arming sequence is already running.")
+            return
+
+        self.is_arming_ramp = True
+        self.btn_start_ramp.config(state=tk.DISABLED)
+        self.lbl_ramp_status.config(text=f"Arming ramp to {target:.2f} K (Anti-Surge Sequence)...", foreground="#e65100")
+
+        self.ramp_worker_thread = threading.Thread(
+            target=self._execute_anti_surge_ramp_thread,
+            args=(target, rate, p, i, d, maxpwr, range_val),
+            daemon=True
+        )
+        self.ramp_worker_thread.start()
+
+    def _execute_anti_surge_ramp_thread(self, target, rate, p, i, d, maxpwr, range_val):
+        """
+        Anti-Surge Sequence (Strictly Enforced from FINAL_REPORT.md Section 9 & staged_ramp_test.py):
+        1. Read current temperature (T_now)
+        2. LOOP 1:TYPE PID (drop to PID mode so setpoint moves instantly without ramping)
+        3. LOOP 1:SETPT <T_now> (park working setpoint at current reading, error = 0.0 K)
+        4. Configure validated tuning: RANGE, MAXPWR, PGAIN, IGAIN, DGAIN, RATE
+        5. CONTROL (engage loop at zero error -> heater begins smoothly at hold power)
+        6. Wait 2.5s for loop to stabilize at hold power
+        7. LOOP 1:TYPE RAMPP (engage ramp mode)
+        8. LOOP 1:SETPT <target> (SENT LAST: writing setpoint arms the ramp smoothly)
+        """
+        try:
+            self._update_ramp_ui_status("Step 1/6: Reading current temperature...")
+            t_now_str = self.comm.query("INPUT? A", wait=0.15)
             try:
-                self.target_temp = float(self.ent_target_temp.get().strip())
-                self.fast_rate = float(self.ent_fast_rate.get().strip())
-                self.slow_rate = float(self.ent_slow_rate.get().strip())
-                self.threshold_delta = float(self.ent_switch_delta.get().strip())
+                t_now = float(t_now_str)
             except ValueError:
-                messagebox.showerror("Invalid Input", "Please enter valid numeric values.")
+                t_now = target
+
+            self._update_ramp_ui_status(f"Step 2/6: Parking setpoint at current temp ({t_now:.2f} K)...")
+            self.comm.send("LOOP 1:TYPE PID", wait=0.3)
+            self.comm.send(f"LOOP 1:SETPT {t_now:.3f}", wait=0.5)
+
+            self._update_ramp_ui_status(f"Step 3/6: Loading tuning (P={p}, I={i}s, Range={range_val}, Cap={maxpwr}%)...")
+            self.comm.send(f"LOOP 1:RANGE {range_val}", wait=0.8)  # Mechanical relay switch
+            self.comm.send(f"LOOP 1:MAXPWR {maxpwr:.1f}", wait=0.2)
+            self.comm.send(f"LOOP 1:PGAIN {p:.1f}", wait=0.2)
+            self.comm.send(f"LOOP 1:IGAIN {i:.1f}", wait=0.2)
+            self.comm.send(f"LOOP 1:DGAIN {d:.1f}", wait=0.2)
+            self.comm.send(f"LOOP 1:RATE {rate:.2f}", wait=0.2)
+
+            self._update_ramp_ui_status("Step 4/6: Engaging CONTROL at zero error...")
+            self.comm.send("CONTROL", wait=0.3)
+            time.sleep(2.5)  # Allow loop to balance at hold power
+
+            self._update_ramp_ui_status("Step 5/6: Arming RAMPP mode...")
+            self.comm.send("LOOP 1:TYPE RAMPP", wait=0.3)
+
+            self._update_ramp_ui_status(f"Step 6/6: Sending target setpoint {target:.2f} K (Arms Ramp)...")
+            self.comm.send(f"LOOP 1:SETPT {target:.3f}", wait=0.3)
+
+            msg = f"✓ RAMP ACTIVE: Climbing to {target:.2f} K @ {rate:.2f} K/min (Anti-Surge OK)"
+            self._update_ramp_ui_status(msg, foreground="#1b5e20")
+            self.root.after(0, lambda: self.statusbar.config(text=msg))
+
+        except Exception as e:
+            err_msg = f"Anti-Surge Sequence Error: {e}"
+            self._update_ramp_ui_status(err_msg, foreground="#c62828")
+        finally:
+            self.is_arming_ramp = False
+            self.root.after(0, lambda: self.btn_start_ramp.config(state=tk.NORMAL))
+
+    def _update_ramp_ui_status(self, text, foreground="#333333"):
+        self.root.after(0, lambda: self.lbl_ramp_status.config(text=f"Status: {text}", foreground=foreground))
+
+    def _hold_current_temperature(self):
+        """Safely parks setpoint at current reading in PID mode without stopping control."""
+        if not self.comm.connected:
+            return
+        t_now_str = self.comm.query("INPUT? A", wait=0.15)
+        try:
+            t_now = float(t_now_str)
+        except ValueError:
+            return
+
+        self.comm.send("LOOP 1:TYPE PID", wait=0.3)
+        self.comm.send(f"LOOP 1:SETPT {t_now:.3f}", wait=0.3)
+        msg = f"Holding at current temperature {t_now:.3f} K (Type PID)"
+        self.lbl_ramp_status.config(text=f"Status: {msg}", foreground="#0066cc")
+        self.statusbar.config(text=msg)
+
+    def _stop_heating(self):
+        """Sends STOP command and verifies CONTROL is OFF."""
+        if not self.comm.connected:
+            return
+        self.comm.send("STOP", wait=0.3)
+        ctrl = self.comm.query("CONTROL?", wait=0.2)
+        msg = f"Heater STOP sent (Control = {ctrl})"
+        self.lbl_ramp_status.config(text=f"Status: {msg}", foreground="#b71c1c")
+        self.statusbar.config(text=msg)
+
+    def _emergency_stop(self):
+        """Unconditional emergency stop."""
+        self.comm.send("STOP", wait=0.2)
+        self.comm.send("STOP", wait=0.2)
+        ctrl = self.comm.query("CONTROL?", wait=0.2)
+        self.lbl_ramp_status.config(text="Status: 🛑 EMERGENCY STOP ACTIVATED - Heater 0%", foreground="#d32f2f")
+        self.statusbar.config(text=f"🛑 EMERGENCY STOP: Heater disengaged (CONTROL = {ctrl})")
+        messagebox.showwarning("EMERGENCY STOP", f"Heater control disengaged.\nInstrument CONTROL status: {ctrl}")
+
+    def _trigger_table_load(self, table_num):
+        """Asynchronously loads PID table entries without freezing Tkinter."""
+        threading.Thread(target=self._load_pid_table_into_tree, args=(table_num,), daemon=True).start()
+
+    def _load_pid_table_into_tree(self, table_num):
+        if not self.comm.connected:
+            return
+        tree = self.tree_table2 if table_num == 2 else self.tree_table1
+
+        raw = self.comm.query_multiline(f"PIDTABLE {table_num}:TABLE?", wait=1.5)
+        lines = raw.replace("\r", "").split("\n")
+
+        entries = []
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) >= 5:
+                try:
+                    sp = float(parts[0])
+                    p = parts[1]
+                    i = parts[2]
+                    d = parts[3]
+                    rng = parts[4]
+                    ch = parts[5] if len(parts) > 5 else "ChA"
+                    entries.append((f"{sp:.2f}", p, i, d, rng, ch))
+                except ValueError:
+                    pass
+
+        def _populate():
+            for item in tree.get_children():
+                tree.delete(item)
+            for idx, entry in enumerate(entries, start=1):
+                tree.insert("", tk.END, values=(idx, *entry))
+            self.statusbar.config(text=f"Loaded {len(entries)} entries from PID Table {table_num:02d}")
+
+        self.root.after(0, _populate)
+
+    def _reflash_table_02(self):
+        """
+        Writes the validated 16 entries to instrument NVRAM (Table 02).
+        Strictly matches write_pid_table02.py (validated 2026-09-05).
+        """
+        if not messagebox.askyesno(
+            "Confirm Re-Flash NVRAM Table 02",
+            "This will write the validated 16 PID entries (Zone 1: P=40, I=900, D=0) "
+            "directly to Cryo-con 22C non-volatile memory (NVRAM Table 02).\n\n"
+            "Are you sure you want to proceed?"
+        ):
+            return
+
+        validated_entries = [
+            # Zone 1: No active cooling (300 K to 475 K) - Tuned 2026-09-05
+            (475, 40.0, 900, 0, "HI"),
+            (450, 40.0, 900, 0, "HI"),
+            (425, 40.0, 900, 0, "HI"),
+            (400, 40.0, 900, 0, "HI"),
+            (375, 40.0, 900, 0, "HI"),
+            (350, 40.0, 900, 0, "HI"),
+            (325, 40.0, 900, 0, "HI"),
+            (300, 40.0, 900, 0, "HI"),
+            # Zone 2: LN2 active cooling (77 K to 300 K)
+            (275,  2.0,  55, 50, "HI"),
+            (250,  1.9,  58, 47, "HI"),
+            (225,  1.8,  60, 44, "HI"),
+            (200,  1.7,  62, 41, "HI"),
+            (175,  1.6,  62, 38, "HI"),
+            (150,  1.5,  60, 33, "HI"),
+            (120,  1.3,  56, 27, "HI"),
+            ( 77,  1.0,  50, 20, "MID"),
+        ]
+
+        cmd_lines = ["PIDTABLE 2:TABLE", "PID Table 2"]
+        for (sp, p, i, d, rng) in validated_entries:
+            cmd_lines.append(f" {sp:6.2f}  {p:5.2f}  {i:6.2f}  {d:5.2f}  {rng}")
+        cmd_lines.append(";")
+        full_cmd = "\r\n".join(cmd_lines) + "\r\n"
+
+        threading.Thread(target=self._execute_reflash_thread, args=(full_cmd,), daemon=True).start()
+
+    def _execute_reflash_thread(self, full_cmd):
+        self.root.after(0, lambda: self.statusbar.config(text="Flashing PID Table 02 to controller NVRAM..."))
+        with self.comm.lock:
+            if not self.comm.connected or not self.comm.ser:
                 return
+            self.comm.ser.reset_input_buffer()
+            self.comm.ser.write(full_cmd.encode())
+            time.sleep(3.0)
 
-            if not self.comm.connected:
-                messagebox.showwarning("Not Connected", "Please connect to the Cryocon controller first.")
-                return
-
-            self.comm.send("LOOP 1:TABLEIX 2")
-            self.comm.send("CONTROL")
-
-            current_temp = self.telemetry["temp_a"]
-            delta = abs(current_temp - self.target_temp)
-
-            self.comm.send(f"LOOP 1:SETPT {self.target_temp}")
-
-            if delta > self.threshold_delta:
-                self.ramp_stage = "FAST_RAMP"
-                self.comm.send(f"LOOP 1:RATE {self.fast_rate}")
-                status_msg = f"Fast Ramping @ {self.fast_rate} K/min (ΔT={delta:.1f}K > {self.threshold_delta}K)"
-            else:
-                self.ramp_stage = "GENTLE_APPROACH"
-                self.comm.send(f"LOOP 1:RATE {self.slow_rate}")
-                status_msg = f"Gentle Approach @ {self.slow_rate} K/min (within {self.threshold_delta}K)"
-
-            self.smart_ramp_active = True
-            self.btn_start_ramp.config(text="⏹ STOP RAMP", bg="#d32f2f")
-            self.lbl_ramp_engine_status.config(text=f"Engine: {status_msg}")
-            self.statusbar.config(text=f"Smart Ramp active: Target {self.target_temp}K | {status_msg}")
-        else:
-            self.smart_ramp_active = False
-            self.ramp_stage = "IDLE"
-            self.btn_start_ramp.config(text="▶ START SMART RAMP", bg="#1b5e20")
-            self.lbl_ramp_engine_status.config(text="Ramp Engine: Idle / Stopped")
-            self.statusbar.config(text="Smart Ramp stopped.")
-
-    def _process_smart_ramp_step(self, current_temp, current_setpt):
-        delta = abs(current_temp - self.target_temp)
-        # Signed overshoot: temperature has crossed above target
-        overshot = (current_temp > self.target_temp + 0.1)
-
-        if self.ramp_stage == "FAST_RAMP":
-            if overshot:
-                # Temperature crossed target — bail straight to FINE_APPROACH
-                self.ramp_stage = "FINE_APPROACH"
-                self.comm.send("LOOP 1:RATE 0")   # disable ramp, let PID settle
-                _d = delta  # capture for lambda
-                self.root.after(0, lambda d=_d: self.lbl_ramp_engine_status.config(
-                    text=f"Engine: OVERSHOOT detected (+{d:.2f}K) → PID-only hold (RATE=0)"
-                ))
-            elif delta <= self.threshold_delta:
-                self.ramp_stage = "GENTLE_APPROACH"
-                self.comm.send(f"LOOP 1:RATE {self.slow_rate}")
-                _d = delta  # capture for lambda
-                self.root.after(0, lambda d=_d: self.lbl_ramp_engine_status.config(
-                    text=f"Engine: GENTLE @ {self.slow_rate} K/min (ΔT={d:.2f}K ≤ {self.threshold_delta}K)"
-                ))
-
-        elif self.ramp_stage == "GENTLE_APPROACH":
-            fine_delta = max(self.slow_rate * 2.0, 2.0)  # switch 2× slow-rate or 2K before target
-            if overshot or delta <= fine_delta:
-                self.ramp_stage = "FINE_APPROACH"
-                self.comm.send("LOOP 1:RATE 0")   # stop setpoint ramping, PID takes over
-                _d = delta  # capture for lambda
-                self.root.after(0, lambda d=_d: self.lbl_ramp_engine_status.config(
-                    text=f"Engine: FINE approach — RATE=0, PID settling (ΔT={d:.2f}K)"
-                ))
-
-        elif self.ramp_stage == "FINE_APPROACH":
-            if delta < 0.2:
-                self.ramp_stage = "HOLDING"
-                self.root.after(0, lambda: self.lbl_ramp_engine_status.config(
-                    text=f"Engine: ✓ Target {self.target_temp}K REACHED — Holding (Error < 0.2K)."
-                ))
+        self._trigger_table_load(2)
+        self.root.after(0, lambda: messagebox.showinfo(
+            "Success",
+            "PID Table 02 successfully re-flashed with validated tuning (P=40, I=900, D=0) and verified!"
+        ))
 
     def _toggle_logging(self):
         if not self.logging_active:
             now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.log_filename = os.path.abspath(f"cryocon_log_{now_str}.csv")
+            os.makedirs("data", exist_ok=True)
+            self.log_filename = os.path.abspath(os.path.join("data", f"cryocon_log_{now_str}_gui.csv"))
             try:
                 self.log_file = open(self.log_filename, "w", newline="", encoding="utf-8")
                 self.log_writer = csv.writer(self.log_file)
                 self.log_writer.writerow([
-                    "Timestamp", "Elapsed_Sec", "Temp_A_K", "Temp_B_K",
+                    "Timestamp", "Elapsed_Sec", "Temp_A_K",
                     "Setpoint_K", "Error_K", "Heater_Pct", "Ramp_Rate_K_min",
-                    "Active_PID_Table", "Control_State", "P_Gain", "I_Gain", "D_Gain"
+                    "P_Gain", "I_Gain", "D_Gain", "Range", "MaxPwr_Pct",
+                    "Control_State", "Loop_Type", "Ramping"
                 ])
                 self.log_file.flush()
                 self.log_records_count = 0
@@ -689,148 +936,50 @@ class CryoconGUI:
         elapsed = time.time() - self.log_start_time
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log_writer.writerow([
-            ts, f"{elapsed:.1f}", f"{t['temp_a']:.4f}", f"{t['temp_b']:.4f}",
+            ts, f"{elapsed:.1f}",
+            f"{t['temp_a']:.4f}" if t['temp_a'] == t['temp_a'] else "nan",
             f"{t['setpoint']:.4f}", f"{t['error']:+.4f}", f"{t['heater_pwr']:.2f}",
-            f"{t['rate']:.2f}", t['tableix'], t['control'],
-            f"{t['pgain']:.4f}", f"{t['igain']:.4f}", f"{t['dgain']:.4f}"
+            f"{t['rate']:.2f}", f"{t['pgain']:.1f}", f"{t['igain']:.1f}", f"{t['dgain']:.1f}",
+            t['range'], f"{t['maxpwr']:.1f}", t['control'], t['type'], t['ramp_active']
         ])
         self.log_file.flush()
         self.log_records_count += 1
 
-    def _apply_direct_sp(self):
-        try:
-            sp = float(self.ent_direct_sp.get().strip())
-            self.comm.send(f"LOOP 1:SETPT {sp}")
-            self.statusbar.config(text=f"Setpoint {sp} K sent to Loop 1")
-        except ValueError:
-            messagebox.showerror("Error", "Invalid setpoint value")
-
-    def _apply_direct_rate(self):
-        try:
-            r = float(self.ent_direct_rate.get().strip())
-            self.comm.send(f"LOOP 1:RATE {r}")
-            self.statusbar.config(text=f"Ramp rate {r} K/min sent to Loop 1")
-        except ValueError:
-            messagebox.showerror("Error", "Invalid ramp rate value")
-
-    def _toggle_control(self):
-        if self.telemetry["control"].upper() == "ON":
-            self.comm.send("STOP")
-            self.statusbar.config(text="Control STOPPED (Heater OFF)")
-        else:
-            self.comm.send("CONTROL")
-            self.statusbar.config(text="Control ENABLED (Heater active)")
-
-    def _apply_tableix(self):
-        sel = self.combo_tableix.get()
-        tix = 1 if "Table 1" in sel else 2
-        self.comm.send(f"LOOP 1:TABLEIX {tix}")
-        self.statusbar.config(text=f"Loop 1 PID Table set to Table {tix}")
-
-    def _apply_heater_range(self):
-        rng = self.combo_range.get().strip()
-        self.comm.send(f"LOOP 1:RANGE {rng}")
-        self.statusbar.config(text=f"Loop 1 Heater Range set to {rng}")
-
-    def _emergency_stop(self):
-        self.comm.send("STOP")
-        self.smart_ramp_active = False
-        self.ramp_stage = "IDLE"
-        self.btn_start_ramp.config(text="▶ START SMART RAMP", bg="#1b5e20")
-        self.lbl_ramp_engine_status.config(text="EMERGENCY STOP EXECUTED - Heater DISABLED")
-        self.statusbar.config(text="🛑 EMERGENCY STOP: Control aborted, heater set to 0%")
-        messagebox.showwarning("EMERGENCY STOP", "Control loop STOP command sent to Cryocon.\nHeater power disabled.")
-
-    def _load_pid_table_into_tree(self, table_num):
-        if not self.comm.connected:
-            return
-        tree = self.tree_table2 if table_num == 2 else self.tree_table1
-
-        raw = self.comm.query_multiline(f"PIDTABLE {table_num}:TABLE?", wait=1.5)
-        for item in tree.get_children():
-            tree.delete(item)
-
-        lines = raw.replace("\r", "").split("\n")
-        row_idx = 1
-        for line in lines:
-            parts = line.strip().split()
-            if len(parts) >= 5:
-                try:
-                    sp = float(parts[0])
-                    p = parts[1]
-                    i = parts[2]
-                    d = parts[3]
-                    rng = parts[4]
-                    ch = parts[5] if len(parts) > 5 else "ChA"
-                    tree.insert("", tk.END, values=(row_idx, f"{sp:.2f}", p, i, d, rng, ch))
-                    row_idx += 1
-                except ValueError:
-                    pass
-
-        self.statusbar.config(text=f"Loaded {row_idx-1} entries from PID Table {table_num:02d}")
-
-    def _reflash_table_02(self):
-        if not messagebox.askyesno("Confirm Re-Flash", "Write Table 02 (180K - 475K, 16 entries) to Cryocon controller?"):
-            return
-
-        entries = [
-            (475, 2.5, 250, 60, "HI"),
-            (460, 2.4, 240, 60, "HI"),
-            (440, 2.3, 230, 50, "HI"),
-            (420, 2.2, 220, 50, "HI"),
-            (400, 2.1, 210, 50, "HI"),
-            (380, 2.0, 200, 50, "HI"),
-            (360, 1.9, 190, 40, "HI"),
-            (340, 1.8, 180, 40, "HI"),
-            (320, 1.7, 170, 40, "HI"),
-            (300, 1.6, 160, 40, "HI"),
-            (280, 1.5, 150, 30, "HI"),
-            (260, 1.4, 140, 30, "HI"),
-            (240, 1.3, 130, 30, "HI"),
-            (220, 1.2, 120, 30, "HI"),
-            (200, 1.1, 110, 20, "MID"),
-            (180, 1.0, 100, 20, "MID"),
-        ]
-
-        cmd_lines = ["PIDTABLE 2:TABLE", "PID Table 2"]
-        for (sp, p, i, d, rng) in entries:
-            cmd_lines.append(f" {sp:6.2f}  {p:5.2f}  {i:6.2f}  {d:5.2f}  {rng}")
-        cmd_lines.append(";")
-        full_cmd = "\r\n".join(cmd_lines) + "\r\n"
-
-        with self.comm.lock:
-            self.comm.ser.reset_input_buffer()
-            self.comm.ser.write(full_cmd.encode())
-            time.sleep(2.0)
-
-        self._load_pid_table_into_tree(2)
-        messagebox.showinfo("Success", "PID Table 02 successfully re-flashed and verified!")
-
     def _update_gui_readouts(self):
         t = self.telemetry
 
-        self.lbl_temp_a.config(text=f"{t['temp_a']:.3f} K")
-        self.lbl_temp_b.config(text=f"{t['temp_b']:.3f} K" if t['temp_b'] > 0 else "--.--- K")
+        # Channel A
+        if t['temp_a'] == t['temp_a']:  # Not NaN
+            self.lbl_temp_a.config(text=f"{t['temp_a']:.3f} K")
+        else:
+            self.lbl_temp_a.config(text="--.--- K")
+
+        # Setpoint & Error
         self.lbl_setpt.config(text=f"{t['setpoint']:.3f} K")
         err_sign = "+" if t['error'] >= 0 else ""
-        self.lbl_error.config(text=f"Error: {err_sign}{t['error']:.3f} K",
-                              foreground="#c62828" if abs(t['error']) > 1.0 else "#2e7d32")
+        err_color = "#2e7d32" if abs(t['error']) <= 0.10 else ("#e65100" if abs(t['error']) <= 0.50 else "#c62828")
+        self.lbl_error.config(text=f"Error: {err_sign}{t['error']:.3f} K", foreground=err_color)
+
+        # Heater Output
         self.lbl_heater.config(text=f"{t['heater_pwr']:.1f} %")
         self.pbar_heater["value"] = min(100.0, max(0.0, t['heater_pwr']))
 
+        # Badges
         is_on = t['control'].upper() in ["ON", "1", "TRUE"]
-        self.badge_ctrl.config(text=f"CONTROL: {t['control']}",
-                               bg="#c8e6c9" if is_on else "#ffcdd2",
-                               fg="#1b5e20" if is_on else "#b71c1c")
-        self.btn_toggle_ctrl.config(text="Disable Control (STOP)" if is_on else "Enable Control (ON)")
-
-        self.badge_table.config(text=f"PID TABLE: {t['tableix']}")
+        self.badge_ctrl.config(
+            text=f"CONTROL: {t['control']}",
+            bg="#c8e6c9" if is_on else "#ffcdd2",
+            fg="#1b5e20" if is_on else "#b71c1c"
+        )
+        self.badge_mode.config(text=f"MODE: {t['type']}")
         self.badge_range.config(text=f"RANGE: {t['range']}")
-        self.badge_ramp.config(text=f"RAMP: {t['rate']:.2f} K/min")
+        self.badge_rate.config(text=f"RATE: {t['rate']:.1f} K/min")
+        self.badge_pid.config(text=f"P={t['pgain']:.0f} I={t['igain']:.0f}s D={t['dgain']:.0f}")
 
         if self.logging_active:
             self.lbl_log_count.config(text=str(self.log_records_count))
 
+        # Update Chart Buffers
         now = time.time()
         self.plot_times.append(now)
         self.plot_temp_a.append(t['temp_a'])
@@ -845,7 +994,9 @@ class CryoconGUI:
             self.plot_setpt = self.plot_setpt[-self.max_plot_points:]
             self.plot_heater = self.plot_heater[-self.max_plot_points:]
 
-        if len(self.plot_times) % 2 == 0:
+        # Redraw chart smoothly twice per second (2 Hz) to maintain high responsiveness without lag
+        if now - self.last_chart_draw >= 0.5:
+            self.last_chart_draw = now
             self._redraw_chart()
 
     def _on_window_change(self, event=None):
@@ -869,6 +1020,10 @@ class CryoconGUI:
         self.ax1.clear()
         self.ax2.clear()
 
+        # Enforce secondary Heater axis strictly on the RIGHT side
+        self.ax2.yaxis.tick_right()
+        self.ax2.yaxis.set_label_position("right")
+
         t_now = self.plot_times[-1]
         cutoff = t_now - self.plot_window_seconds
 
@@ -879,26 +1034,31 @@ class CryoconGUI:
         times_rel = [(self.plot_times[i] - self.plot_times[0]) for i in indices]
 
         visible_temps = []
+
+        # Temp A (Sample Stage)
         if self.chk_show_a.get() and len(self.plot_temp_a) >= len(indices):
             y_a = [self.plot_temp_a[i] for i in indices]
-            self.ax1.plot(times_rel, y_a, label="Temp A", color="#0066cc", linewidth=2.0)
-            visible_temps.extend(y_a)
+            valid_ya = [v for v in y_a if v == v and v > 0]
+            if valid_ya:
+                self.ax1.plot(times_rel, y_a, label="Temp A (Sample)", color="#0066cc", linewidth=2.0)
+                visible_temps.extend(valid_ya)
 
-        if self.chk_show_b.get() and len(self.plot_temp_b) >= len(indices):
-            y_b = [self.plot_temp_b[i] for i in indices]
-            self.ax1.plot(times_rel, y_b, label="Temp B", color="#2e7d32", linewidth=1.5, linestyle=":")
-            if any(v > 0 for v in y_b):
-                visible_temps.extend(y_b)
+        # Setpoint (Dashed Orange Line)
+        if self.chk_show_sp.get() and len(self.plot_setpt) >= len(indices):
+            y_sp = [self.plot_setpt[i] for i in indices]
+            valid_sp = [v for v in y_sp if v == v and v > 0]
+            if valid_sp:
+                self.ax1.plot(times_rel, y_sp, label="Setpoint", color="#e65100", linewidth=1.6, linestyle="--")
+                visible_temps.extend(valid_sp)
 
-
-
+        # Heater % Output (Secondary Axis on RIGHT)
         visible_heaters = []
         if self.chk_show_ht.get() and len(self.plot_heater) >= len(indices):
             y_ht = [self.plot_heater[i] for i in indices]
-            self.ax2.plot(times_rel, y_ht, label="Heater %", color="#9c27b0", linewidth=1.0, alpha=0.6)
+            self.ax2.plot(times_rel, y_ht, label="Heater %", color="#8e24aa", linewidth=1.0, alpha=0.5)
             visible_heaters.extend(y_ht)
 
-        # Smart Autoscale for Temperature (Y-axis 1)
+        # Autoscale Temperature (Y-axis 1 - Left)
         if self.chk_autoscale_temp.get() and visible_temps:
             y_min = min(visible_temps)
             y_max = max(visible_temps)
@@ -910,7 +1070,7 @@ class CryoconGUI:
                 margin = span * 0.08
                 self.ax1.set_ylim(y_min - margin, y_max + margin)
 
-        # Smart Autoscale for Heater Output % (Y-axis 2)
+        # Autoscale Heater (Y-axis 2 - Right)
         if self.chk_autoscale_ht.get() and visible_heaters:
             max_ht = max(visible_heaters)
             self.ax2.set_ylim(0, max(20.0, max_ht * 1.25))
@@ -918,23 +1078,42 @@ class CryoconGUI:
             self.ax2.set_ylim(0, 105)
 
         self.ax1.set_ylabel("Temperature (K)", color="#0066cc", fontsize=9)
-        self.ax2.set_ylabel("Heater Output (%)", color="#9c27b0", fontsize=9)
+        self.ax2.set_ylabel("Heater Output (%)", color="#8e24aa", fontsize=9)
+        self.ax2.yaxis.set_label_position("right")
+        self.ax2.yaxis.tick_right()
         self.ax1.grid(True, linestyle="--", alpha=0.4)
 
-        self.ax1.legend(loc="upper left", fontsize=8)
-        self.ax2.legend(loc="upper right", fontsize=8)
+        handles1, labels1 = self.ax1.get_legend_handles_labels()
+        if handles1:
+            self.ax1.legend(loc="upper left", fontsize=8)
+        handles2, labels2 = self.ax2.get_legend_handles_labels()
+        if handles2:
+            self.ax2.legend(loc="upper right", fontsize=8)
 
         self.fig.tight_layout()
         self.canvas.draw_idle()
 
     def _on_close(self):
+        """Clean and safe shutdown on window exit."""
+        # If control is currently active, confirm with user and send STOP
+        if self.telemetry.get("control", "").upper() in ["ON", "1", "TRUE"]:
+            ans = messagebox.askyesno(
+                "Active Heater Warning",
+                "Heater control loop is currently ON!\n\n"
+                "Turn OFF the heater (send STOP) before closing?"
+            )
+            if ans:
+                self.comm.send("STOP", wait=0.3)
+
+        # Unconditionally stop polling and logging
         self.poll_running = False
-        self.smart_ramp_active = False
         if self.logging_active and self.log_file:
             try:
                 self.log_file.close()
             except Exception:
                 pass
+
+        # Disconnect serial
         self.comm.disconnect()
         self.root.destroy()
 

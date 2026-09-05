@@ -5,12 +5,13 @@ echo ===================================================
 echo   Starting Cryocon 22C Temperature Controller GUI
 echo ===================================================
 
-if exist "%USERPROFILE%\anaconda3\python.exe" (
-    "%USERPROFILE%\anaconda3\python.exe" cryocon_gui.py
-) else if exist "C:\Users\SRMAP\anaconda3\python.exe" (
-    "C:\Users\SRMAP\anaconda3\python.exe" cryocon_gui.py
-) else (
-    python cryocon_gui.py
+python cryocon_gui.py
+if errorlevel 1 (
+    if exist "%USERPROFILE%\anaconda3\python.exe" (
+        "%USERPROFILE%\anaconda3\python.exe" cryocon_gui.py
+    ) else if exist "C:\Users\SRMAP\anaconda3\python.exe" (
+        "C:\Users\SRMAP\anaconda3\python.exe" cryocon_gui.py
+    )
 )
 
 if errorlevel 1 (
