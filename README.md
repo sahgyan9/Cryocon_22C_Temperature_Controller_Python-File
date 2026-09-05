@@ -29,6 +29,16 @@ Send `CONTROL` **before** the target setpoint, and send the setpoint **last** â€
 writing the setpoint is what arms the ramp. Setting a target while control is OFF
 makes the heater slam to its power limit the moment control is switched on.
 
+## Serial Interface & Communication Speed
+
+- **Port:** `COM5` (or assigned USB-serial COM port)
+- **Baud Rate:** `57,600` (8 Data Bits, 1 Stop Bit, No Parity, `\r\n` Line Termination)
+- **Hardware Upgrade Note:** Upgraded from the factory 9,600 baud to **57,600 baud** on the instrument front panel (`System -> Remote -> RS-232 Rate: 57600`).
+- **Telemetry Throughput & ADC Limits:**
+  - The Cryo-con 22C has a fixed 24-bit delta-sigma ADC running at **10 Hz (100 ms)**.
+  - At 57,600 baud, single SCPI query roundtrips take ~25â€“30 ms (down from ~120 ms at 9600).
+  - The Python GUI (`cryocon_gui.py`) features an **Ultra (0.10 s / 10 Hz)** polling option that streams stage temperature, heater output, and setpoints at the full hardware ADC limit with zero lag.
+
 ## Layout
 
 | Path | Contents |

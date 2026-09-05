@@ -3,7 +3,7 @@
 **Target System:** Janis Research ST-LN-500 Cryogenic Probe Station  
 **Controller:** Cryo-con Model 22C (Firmware 3.33G, Serial 206687)  
 **VI Path:** `D:\Labview\Cryo Con 2\CryoCon_RampControl.vi`  
-**Communication:** Serial VISA (`COM5`, 9600 Baud, 8 Data Bits, 1 Stop Bit, No Parity, `\r\n` Line Termination)  
+**Communication:** Serial VISA (`COM5`, 57600 Baud [hardware upgraded from 9600], 8 Data Bits, 1 Stop Bit, No Parity, `\r\n` Line Termination)  
 
 ---
 
@@ -57,7 +57,7 @@ stateDiagram-v2
 ### State 1: `"Init"`
 * **Purpose:** Establishes communication session and queries instrument identity.
 * **Execution Flow:**
-  1. `CC_Initialize.vi` opens the VISA session with 9600 baud rate.
+  1. `CC_Initialize.vi` opens the VISA session with 57600 baud rate (matching the Cryo-con 22C hardware front panel configuration).
   2. `CC_IO.vi` sends `*IDN?` to verify the Cryo-con 22C responds.
   3. Displays response in the `Status` indicator.
   4. Automatically transitions to `"LoadTuning"`.

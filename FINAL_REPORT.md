@@ -39,7 +39,7 @@ problem, and Section 9 tells you what to do about it.
 | Sensor used | Channel A (Channel B reads a sensor fault and is unusable) |
 | Heater load | 50 Ω, measured via `LOOP 1:LOAD?` |
 | Heater range | HI = 50 W full scale |
-| Communications | COM5, 9600 baud, 8N1, `\r\n` terminated |
+| Communications | COM5, 57600 baud (upgraded from 9600), 8N1, `\r\n` terminated |
 | Temperature range studied | 297 K → 450 K |
 | Active cooling above 300 K | **None.** LN₂ cools only the low end of the range. |
 
@@ -269,10 +269,9 @@ Until now, any switch to `RAMPT` or `TABLE` mode would have silently restored th
 
 ## 9. LabVIEW instructions
 
-Serial settings: **COM5, 9600 baud, 8 data bits, no parity, 1 stop bit.** Terminate
-every command with **carriage-return + line-feed (`\r\n`)**. Allow roughly **200 ms**
-between commands; the controller will drop commands sent faster than it can process
-them. Queries end with `?` and return a single line.
+Serial settings: **COM5, 57600 baud (hardware upgraded on 22C front panel from 9600 for ultra-fast telemetry), 8 data bits, no parity, 1 stop bit.** Terminate
+every command with **carriage-return + line-feed (`\r\n`)**. Allow roughly **50–100 ms**
+between configuration commands. Queries end with `?` and return a single line.
 
 ### Step 1 — once at the start of a session
 

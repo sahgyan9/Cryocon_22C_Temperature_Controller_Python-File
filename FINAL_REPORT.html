@@ -419,7 +419,7 @@ LOOP 1:TYPE    RAMPP     <span class="c">ramp using these gains, NOT a table loo
 
 <section>
   <h2><span class="num">10</span>LabVIEW instructions</h2>
-  <p>Serial: <strong>COM5, 9600 baud, 8 data bits, no parity, 1 stop bit.</strong> Terminate every command with carriage-return + line-feed (<code>\r\n</code>). Allow roughly <strong>200 ms</strong> between commands — the controller drops commands sent faster than it can process them. Queries end with <code>?</code> and return one line.</p>
+  <p>Serial: <strong>COM5, 57600 baud (upgraded from 9600 for ultra-fast telemetry), 8 data bits, no parity, 1 stop bit.</strong> Terminate every command with carriage-return + line-feed (<code>\r\n</code>). Allow roughly <strong>50–100 ms</strong> between configuration commands. Queries end with <code>?</code> and return one line.</p>
 
   <div class="step">
     <div class="k">1</div><div class="t">Once at the start of a session</div>
