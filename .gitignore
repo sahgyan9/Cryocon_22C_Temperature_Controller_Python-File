@@ -15,9 +15,10 @@ ENV/
 *.swp
 *.swo
 
-# Runtime test data and telemetry logs
-cryocon_data_*.csv
-cryocon_log_*.csv
+# Runtime test data and telemetry logs (anchored to root)
+/cryocon_data_*.csv
+/cryocon_log_*.csv
+labview/_sim_cmdlog.txt
 
 # OS generated files
 Thumbs.db
