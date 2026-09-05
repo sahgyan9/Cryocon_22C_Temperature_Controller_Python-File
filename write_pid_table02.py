@@ -2,7 +2,7 @@ import serial, time, sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 PORT = "COM5"
-BAUD = 9600
+BAUD = 57600
 
 def q_multiline(ser, cmd, wait=2.0):
     ser.reset_input_buffer()

@@ -14,7 +14,7 @@ import csv
 import argparse
 
 PORT = "COM5"
-BAUD = 9600
+BAUD = 57600
 
 
 def query_retry(ser, cmd, wait=0.2, retries=3):

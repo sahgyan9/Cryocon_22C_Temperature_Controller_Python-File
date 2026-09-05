@@ -1,4 +1,4 @@
-﻿# Cryocon 22C Project - Dev Notes for Future Agents
+# Cryocon 22C Project - Dev Notes for Future Agents
 
 ## Python Executable
 - **Use:** `C:\Users\SRMAP\anaconda3\python.exe`
@@ -10,7 +10,7 @@ Run any script like this:
   & "C:\Users\SRMAP\anaconda3\python.exe" script_name.py
 
 ## COM Port Rule -- CRITICAL
-- The Cryocon 22C uses COM5 at 9600 baud.
+- The Cryocon 22C uses COM5 at 57600 baud (upgraded from 9600 for ultra-fast 10 Hz telemetry).
 - Only ONE process can own COM5 at a time.
 - If cryocon_gui.py is running and connected, ALL other scripts will get:
   PermissionError(13, 'Access is denied.') on COM5.

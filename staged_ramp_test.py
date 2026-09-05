@@ -31,7 +31,7 @@ import os
 import sys
 
 PORT = "COM5"
-BAUD = 9600
+BAUD = 57600
 
 
 def query(ser, cmd, wait=0.2, retries=6):
