@@ -372,7 +372,8 @@ def main():
         print("\nOrdering test - %.0f K -> %.0f K against the simulator"
               % (START_TEMP, TARGET_TEMP))
         print("-" * 62)
-        peak_heat, peak_temp = ordering_test(vi, sim, args.seconds)
+        peak_heat, peak_temp = ordering_test(vi, sim, args.seconds,
+                                             args.exit_via)
     finally:
         time.sleep(0.5)
         cmds = sim.commands()
