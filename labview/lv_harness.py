@@ -80,6 +80,22 @@ def open_vi(app, path):
             "or pass --vi with the path you saved it to." % (path, exc))
 
 
+def set_visa(vi, control, resource):
+    """Write a VISA Resource Name control.
+
+    These read and write as a (name, refnum) pair. Passing a bare string is
+    accepted without error and then silently does nothing, leaving the control
+    empty - which surfaces later as VISA error 0xBFFF000E ("the given session
+    or object reference is invalid") at VISA Open, far from the real cause.
+    """
+    vi.SetControlValue(control, (resource, 0))
+    back = vi.GetControlValue(control)
+    if resource.upper() not in str(back).upper():
+        raise SystemExit("could not set %r to %s (read back %r)"
+                         % (control, resource, back))
+    return back
+
+
 def run_vi(vi, asynchronous=True):
     """Start the VI.
 
@@ -225,7 +241,7 @@ def ordering_test(vi, sim, seconds=25.0):
     res = "TCPIP0::127.0.0.1::%d::SOCKET" % SIM_PORT
     visa_ctrl = resolve_control(vi, "VISA Resource")
     if visa_ctrl:
-        vi.SetControlValue(visa_ctrl, res)
+        set_visa(vi, visa_ctrl, res)
 
     for name, value in TUNING.items():
         c = resolve_control(vi, name)
