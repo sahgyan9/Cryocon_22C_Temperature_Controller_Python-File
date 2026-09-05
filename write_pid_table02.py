@@ -34,10 +34,12 @@ def q(ser, cmd, wait=0.25):
 # TWO OPERATING ZONES:
 # ┌─────────────────────────────────────────────────────────────────┐
 # │ ZONE 1 : 300 K – 475 K  (NO active cooling)                    │
-# │   • I = 30–45  →  ~5× lower than original (165–250)            │
-# │     Prevents integrator windup during 2 K/min ramps            │
-# │   • D = 55–70  →  increased for damping without cooling         │
-# │   • P = 2.0–3.0 → slightly higher for faster high-T response   │
+# │   • IGAIN = 900 s  →  Integral reset time in SECONDS.          │
+# │     Larger I prevents integrator windup during ramps.           │
+# │     (Previous I=30-45 was inverted: lower I made windup worse) │
+# │   • D = 0          →  derivative off (avoids sensor noise kick)│
+# │   • P = 40.0       →  optimal proportional stiffness (62° PM)  │
+# │   • Range = HI     →  50 W full scale required above 330 K     │
 # ├─────────────────────────────────────────────────────────────────┤
 # │ ZONE 2 : 77 K – 300 K   (LN₂ active cooling present)          │
 # │   • I = 50–65  →  moderate; needed to overcome LN₂ load        │
@@ -48,21 +50,17 @@ def q(ser, cmd, wait=0.25):
 # │   • Range = MID at 77 K (at LN₂ temp, almost no heat needed)   │
 # └─────────────────────────────────────────────────────────────────┘
 #
-# Why both zones use the SAME table:
-#   Without cooling at 77–300 K → low error, low windup risk; I=50–65 is fine
-#   With LN₂ at 300–475 K       → not applicable (LN₂ evaporates <350 K)
-#
 # Row   Setpt(K)    P      I      D     Range
 entries = [
     # ── ZONE 1: No active cooling (300 K → 475 K) ─────────────────
-    (475,  3.0,   45,   70,  "HI"),   # High T: max radiation loss, needs responsive P+D
-    (450,  2.9,   43,   68,  "HI"),
-    (425,  2.7,   40,   65,  "HI"),
-    (400,  2.6,   38,   63,  "HI"),
-    (375,  2.4,   36,   60,  "HI"),
-    (350,  2.3,   34,   58,  "HI"),
-    (325,  2.1,   32,   55,  "HI"),
-    (300,  2.0,   30,   52,  "HI"),   # ← crossover row (both zones meet here)
+    (475, 40.0,  900,    0,  "HI"),   # P=40 I=900 D=0: best measured (+0.22 K peak)
+    (450, 40.0,  900,    0,  "HI"),
+    (425, 40.0,  900,    0,  "HI"),
+    (400, 40.0,  900,    0,  "HI"),
+    (375, 40.0,  900,    0,  "HI"),
+    (350, 40.0,  900,    0,  "HI"),
+    (325, 40.0,  900,    0,  "HI"),
+    (300, 40.0,  900,    0,  "HI"),   # ← crossover row (both zones meet here)
     # ── ZONE 2: LN₂ active cooling (77 K → 300 K) ─────────────────
     (275,  2.0,   55,   50,  "HI"),   # Higher I to hold against LN₂ cooling load
     (250,  1.9,   58,   47,  "HI"),

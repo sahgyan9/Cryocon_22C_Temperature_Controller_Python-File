@@ -1,0 +1,22 @@
+PID Table 2 as read from Cryocon 22C (serial 206687) before overwrite
+Captured 2026-09-05 09:22:27
+LOOP 1:TABLEIX? -> 2
+
+PID Table 2
+ 475.00    3.00   45.00   70.00 HI  Default
+ 450.00    2.90   43.00   68.00 HI  Default
+ 425.00    2.70   40.00   65.00 HI  Default
+ 400.00    2.60   38.00   63.00 HI  Default
+ 375.00    2.40   36.00   60.00 HI  Default
+ 350.00    2.30   34.00   58.00 HI  Default
+ 325.00    2.10   32.00   55.00 HI  Default
+ 300.00    2.00   30.00   52.00 HI  Default
+ 275.00    2.00   55.00   50.00 HI  Default
+ 250.00    1.90   58.00   47.00 HI  Default
+ 225.00    1.80   60.00   44.00 HI  Default
+ 200.00    1.70   62.00   41.00 HI  Default
+ 175.00    1.60   62.00   38.00 HI  Default
+ 150.00    1.50   60.00   33.00 HI  Default
+ 120.00    1.30   56.00   27.00 HI  Default
+  77.00    1.00   50.00   20.00 MID Default
+;
