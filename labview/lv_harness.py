@@ -236,7 +236,7 @@ class Simulator:
 
 # --------------------------------------------------------------------- test
 
-def ordering_test(vi, sim, seconds=25.0):
+def ordering_test(vi, sim, seconds=25.0, exit_via="EXIT"):
     """Run the VI to a setpoint and watch the heater for a power surge."""
     res = "TCPIP0::127.0.0.1::%d::SOCKET" % SIM_PORT
     visa_ctrl = resolve_control(vi, "VISA Resource")
@@ -294,10 +294,15 @@ def ordering_test(vi, sim, seconds=25.0):
         peak_temp = max(peak_temp, t)
         time.sleep(0.25)
 
-    exit_ctrl = resolve_control(vi, "EXIT")
-    if exit_ctrl:
-        vi.SetControlValue(exit_ctrl, True)
-    time.sleep(3.0)
+    # Which button we press matters: the state machine has to send STOP from
+    # whichever state it is in when the operator asks to leave.
+    print("pressing %s while ramping" % exit_via)
+    ctrl = resolve_control(vi, exit_via)
+    if ctrl:
+        vi.SetControlValue(ctrl, True)
+    else:
+        print("  (control %r not found)" % exit_via)
+    time.sleep(4.0)
     return peak_heat, peak_temp
 
 
@@ -339,6 +344,9 @@ def main():
     ap.add_argument("--check", action="store_true",
                     help="only verify front-panel names, do not run")
     ap.add_argument("--seconds", type=float, default=25.0)
+    ap.add_argument("--exit-via", default="EXIT",
+                    choices=["EXIT", "STOP CONTROL"],
+                    help="which button to press while the ramp is running")
     args = ap.parse_args()
 
     try:

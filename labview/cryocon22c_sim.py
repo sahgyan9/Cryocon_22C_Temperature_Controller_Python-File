@@ -219,7 +219,13 @@ class Instrument:
                     return lp.source
                 lp.source = val.upper()
                 return None
-            if key == "OUTP":
+            if key in ("OUTP", "HTRR", "HTRREAD"):
+                # OUTP? is what the validated Python study logged. HTRR? is what
+                # Loop_Output_Power.vi in the M54 driver actually sends. The 22C
+                # manual documents HTRREAD? as "percent of full scale" but then
+                # contradicts itself on whether power is linear in that percent
+                # or its square. Both are answered identically here; confirm on
+                # hardware which one the instrument really returns.
                 return "%.2f" % lp.output
             if key == "RAMP":
                 return "YES" if lp.ramping else "NO"
