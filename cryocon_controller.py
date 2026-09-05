@@ -29,13 +29,13 @@ class Cryocon22C:
         controller.disconnect()
     """
     
-    def __init__(self, port: str = "COM5", baud_rate: int = 9600, timeout: float = 2.0):
+    def __init__(self, port: str = "COM5", baud_rate: int = 57600, timeout: float = 2.0):
         """
         Initialize the Cryocon 22C controller interface.
         
         Args:
-            port: Serial port (e.g., "COM20" on Windows, "/dev/ttyUSB0" on Linux)
-            baud_rate: Communication baud rate (default 9600)
+            port: Serial port (e.g., "COM5" or "COM20" on Windows, "/dev/ttyUSB0" on Linux)
+            baud_rate: Communication baud rate (default 57600 for upgraded hardware rate; previously 9600)
             timeout: Serial communication timeout in seconds
         """
         self.port = port
@@ -60,9 +60,9 @@ class Cryocon22C:
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE
             )
-            time.sleep(0.5)  # Wait for connection to stabilize
+            time.sleep(0.3)  # Wait for connection to stabilize
             self.connected = True
-            print(f"[OK] Connected to Cryocon 22C on {self.port}")
+            print(f"[OK] Connected to Cryocon 22C on {self.port} @ {self.baud_rate} baud")
             return True
         except serial.SerialException as e:
             print(f"[ERROR] Connection failed: {e}")
@@ -76,13 +76,13 @@ class Cryocon22C:
             self.connected = False
             print("[OK] Disconnected from Cryocon 22C")
     
-    def _send_command(self, command: str, wait_time: float = 0.05) -> str:
+    def _send_command(self, command: str, wait_time: float = 0.01) -> str:
         """
         Send a command and receive response.
         
         Args:
             command: SCPI command to send
-            wait_time: Small pause before reading if needed
+            wait_time: Small pause before reading if needed (0.01s at 57600 baud)
             
         Returns:
             Response string from the controller
@@ -290,8 +290,8 @@ class Cryocon22C:
             return 0.0
     
     def get_max_power(self, loop: int = 1) -> float:
-        """Get maximum heater power setting."""
-        response = self._send_command(f"LOOP {loop}:PMAX?")
+        """Get maximum heater power setting (percentage 0-100%)."""
+        response = self._send_command(f"LOOP {loop}:MAXPWR?")
         clean_resp = response.rstrip('% ').strip()
         try:
             return float(clean_resp)
@@ -300,7 +300,57 @@ class Cryocon22C:
     
     def set_max_power(self, max_power: float, loop: int = 1) -> None:
         """Set maximum heater power (0-100%)."""
-        self._send_command(f"LOOP {loop}:PMAX {max_power}")
+        self._send_command(f"LOOP {loop}:MAXPWR {max_power}")
+        print(f"[OK] Max power set to {max_power}% on Loop {loop}")
+
+    def get_ramp_rate(self, loop: int = 1) -> float:
+        """Get ramp rate in K/min."""
+        response = self._send_command(f"LOOP {loop}:RATE?")
+        try:
+            return float(response)
+        except ValueError:
+            return 0.0
+
+    def set_ramp_rate(self, rate: float, loop: int = 1) -> None:
+        """Set ramp rate in K/min."""
+        self._send_command(f"LOOP {loop}:RATE {rate}")
+        print(f"[OK] Ramp rate set to {rate} K/min on Loop {loop}")
+
+    def start_ramp_anti_surge(self, target: float, rate: float = 1.0,
+                              p: float = 40.0, i: float = 900.0, d: float = 0.0,
+                              range_val: str = "HI", maxpwr: float = 70.0,
+                              loop: int = 1) -> float:
+        """
+        Safely arm and start a temperature ramp to target with zero surge current.
+        Enforces the validated anti-surge command sequence from the 2026-09-05 study.
+        """
+        live = self.read_temperature("A")
+        if live != live:  # NaN check
+            live = target
+
+        # 1. Park working setpoint at current temperature in PID mode
+        self.set_control_type("PID", loop=loop)
+        time.sleep(0.3)
+        self.set_setpoint(live, loop=loop)
+        time.sleep(0.5)
+
+        # 2. Configure validated hardware limits and PID gains
+        self.set_heater_range(range_val, loop=loop)
+        time.sleep(0.8)  # range change throws a mechanical relay
+        self.set_max_power(maxpwr, loop=loop)
+        self.set_pid_parameters(p, i, d, loop=loop)
+        self.set_ramp_rate(rate, loop=loop)
+
+        # 3. Engage control BEFORE target setpoint so loop starts from hold power
+        self.enable_control()
+        time.sleep(2.0)
+
+        # 4. Switch to RAMPP mode and arm ramp with target setpoint
+        self.set_control_type("RAMPP", loop=loop)
+        time.sleep(0.2)
+        self.set_setpoint(target, loop=loop)
+        print(f"[OK] Anti-surge ramp armed to {target} K at {rate} K/min (P={p}, I={i}, D={d})")
+        return live
     
     # ==================== CONTROL ENABLE/DISABLE ====================
     
