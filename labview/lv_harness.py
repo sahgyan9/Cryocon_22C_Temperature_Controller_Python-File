@@ -31,7 +31,9 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_VI = r"D:\Labview\Cryo Con 2\CryoCon_RampControl.vi"
+DEFAULT_VI = os.path.join(HERE, "CryoCon_RampControl.vi")
+if not os.path.exists(DEFAULT_VI):
+    DEFAULT_VI = r"D:\Labview\Cryo Con 2\CryoCon_RampControl.vi"
 
 # Front-panel names from section 2 of the build spec. Renaming a control in
 # LabVIEW without updating this list is what will break these tests.
@@ -303,7 +305,38 @@ def ordering_test(vi, sim, seconds=25.0, exit_via="EXIT"):
     else:
         print("  (control %r not found)" % exit_via)
     time.sleep(4.0)
+
+    # Bring the VI all the way down before the simulator dies underneath it.
+    # Killing the socket while the VI still holds the session makes its next
+    # read fail with VISA 0xBFFF00A6 ("the connection for the given session has
+    # been lost") - a teardown artefact that looks like a VI fault but is not.
+    shutdown(vi)
     return peak_heat, peak_temp
+
+
+def shutdown(vi, timeout=15.0):
+    """Press STOP CONTROL then EXIT and wait for the VI to stop running."""
+    for name in ("STOP CONTROL", "EXIT"):
+        c = resolve_control(vi, name)
+        if c:
+            try:
+                vi.SetControlValue(c, True)
+            except Exception:
+                pass
+            time.sleep(1.5)
+
+    # ExecState reads 1 for a VI that is loaded but not running.
+    t_end = time.time() + timeout
+    while time.time() < t_end:
+        try:
+            if str(vi.ExecState) in ("0", "1"):
+                return True
+        except Exception:
+            break
+        time.sleep(0.5)
+    print("  NOTE: the VI was still running after %.0f s - it may have no "
+          "EXIT path from its current state." % timeout)
+    return False
 
 
 def check_sequence(cmds):
