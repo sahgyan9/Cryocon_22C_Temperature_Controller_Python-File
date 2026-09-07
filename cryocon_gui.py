@@ -318,6 +318,17 @@ class CryoconGUI:
                              command=lambda t=p_temp: self._set_target_preset(t))
             btn.pack(side=tk.LEFT, padx=1)
 
+        self.btn_inline_ramp = tk.Button(r1, text="▶ START RAMP", font=("Segoe UI", 9, "bold"),
+                                         bg="#1b5e20", fg="white", activebackground="#2e7d32", activeforeground="white",
+                                         command=self._start_anti_surge_ramp, padx=8, pady=1, relief=tk.RAISED)
+        self.btn_inline_ramp.pack(side=tk.LEFT, padx=(6, 0))
+
+        # Keyboard & Focus bindings for Target Temp
+        self.ent_target_temp.bind("<Return>", lambda e: self._start_anti_surge_ramp())
+        self.ent_target_temp.bind("<KP_Enter>", lambda e: self._start_anti_surge_ramp())
+        self.ent_target_temp.bind("<FocusOut>", self._on_target_focus_out)
+        self.ent_target_temp.bind("<KeyRelease>", self._on_target_key_release)
+
         # Ramp Rate & Hardware Limits Row
         r2 = ttk.Frame(ramp_frame)
         r2.pack(fill=tk.X, pady=3)
@@ -357,6 +368,11 @@ class CryoconGUI:
         self.ent_d.pack(side=tk.LEFT, padx=(2, 10))
 
         ttk.Button(r3, text="↺ Defaults", width=9, command=self._reset_validated_defaults).pack(side=tk.LEFT)
+
+        # Allow pressing Enter in parameter fields to trigger ramp as well
+        for ent in (self.ent_rate, self.ent_maxpwr, self.ent_p, self.ent_i, self.ent_d):
+            ent.bind("<Return>", lambda e: self._start_anti_surge_ramp())
+            ent.bind("<KP_Enter>", lambda e: self._start_anti_surge_ramp())
 
         ttk.Separator(ramp_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
@@ -706,6 +722,47 @@ class CryoconGUI:
     def _set_target_preset(self, temp_val):
         self.ent_target_temp.delete(0, tk.END)
         self.ent_target_temp.insert(0, f"{temp_val:.1f}")
+        self.lbl_ramp_status.config(
+            text=f"Status: Preset {temp_val:.1f} K loaded. Press Enter or '▶ START RAMP' to begin.",
+            foreground="#0066cc"
+        )
+        self.ent_target_temp.focus_set()
+
+    def _on_target_focus_out(self, event=None):
+        val_str = self.ent_target_temp.get().strip()
+        try:
+            val = float(val_str)
+            self.ent_target_temp.delete(0, tk.END)
+            self.ent_target_temp.insert(0, f"{val:.1f}")
+            if 77.0 <= val <= 460.0:
+                self.lbl_ramp_status.config(
+                    text=f"Status: Target {val:.1f} K ready. Press Enter or '▶ START RAMP' to begin.",
+                    foreground="#0066cc"
+                )
+            else:
+                self.lbl_ramp_status.config(
+                    text=f"Status: ⚠ Target {val:.1f} K outside normal range (77-460 K).",
+                    foreground="#c62828"
+                )
+        except ValueError:
+            if val_str:
+                self.lbl_ramp_status.config(
+                    text="Status: ⚠ Invalid target temperature format.",
+                    foreground="#c62828"
+                )
+
+    def _on_target_key_release(self, event=None):
+        if event and event.keysym in ("Return", "KP_Enter"):
+            return
+        val_str = self.ent_target_temp.get().strip()
+        try:
+            val = float(val_str)
+            self.lbl_ramp_status.config(
+                text=f"Status: Target {val:.1f} K (Uncommitted) — Press Enter or '▶ START RAMP'",
+                foreground="#e65100"
+            )
+        except ValueError:
+            pass
 
     def _reset_validated_defaults(self):
         self.ent_p.delete(0, tk.END)
@@ -726,7 +783,7 @@ class CryoconGUI:
         self.combo_range.set(DEFAULT_RANGE)
         self.statusbar.config(text="Reset controls to validated tuning defaults (P=40, I=900, D=0, MaxPwr=70%, Range=HI)")
 
-    def _start_anti_surge_ramp(self):
+    def _start_anti_surge_ramp(self, event=None):
         """Dispatches the validated anti-surge ramp arming sequence in a worker thread."""
         if not self.comm.connected:
             messagebox.showwarning("Not Connected", "Please connect to the Cryocon 22C controller first.")
@@ -754,6 +811,8 @@ class CryoconGUI:
 
         self.is_arming_ramp = True
         self.btn_start_ramp.config(state=tk.DISABLED)
+        if hasattr(self, 'btn_inline_ramp'):
+            self.btn_inline_ramp.config(state=tk.DISABLED)
         self.lbl_ramp_status.config(text=f"Arming ramp to {target:.2f} K (Anti-Surge Sequence)...", foreground="#e65100")
 
         self.ramp_worker_thread = threading.Thread(
@@ -815,6 +874,8 @@ class CryoconGUI:
         finally:
             self.is_arming_ramp = False
             self.root.after(0, lambda: self.btn_start_ramp.config(state=tk.NORMAL))
+            if hasattr(self, 'btn_inline_ramp'):
+                self.root.after(0, lambda: self.btn_inline_ramp.config(state=tk.NORMAL))
 
     def _update_ramp_ui_status(self, text, foreground="#333333"):
         self.root.after(0, lambda: self.lbl_ramp_status.config(text=f"Status: {text}", foreground=foreground))
