@@ -19,7 +19,7 @@ before arming target setpoint in RAMPP mode to prevent full-power heater surges.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import threading
 import time
 import datetime
@@ -381,10 +381,65 @@ class CryoconGUI:
         self.lbl_ramp_status = ttk.Label(r5, text="Status: Ready (Idle)", font=("Segoe UI", 9, "italic"), foreground="#333333")
         self.lbl_ramp_status.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+    def _get_default_log_filename(self):
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        return f"cryocon_log_{now_str}.csv"
+
+    def _reset_log_filename(self):
+        if not self.logging_active:
+            self.log_filename_var.set(self._get_default_log_filename())
+
+    def _browse_log_file(self):
+        if self.logging_active:
+            return
+        os.makedirs("data", exist_ok=True)
+        current_val = self.log_filename_var.get().strip() or self._get_default_log_filename()
+        if os.path.isabs(current_val) and os.path.exists(os.path.dirname(current_val)):
+            initial_dir = os.path.dirname(current_val)
+            initial_file = os.path.basename(current_val)
+        else:
+            initial_dir = os.path.abspath("data")
+            initial_file = os.path.basename(current_val)
+
+        if not initial_file.lower().endswith(".csv"):
+            initial_file += ".csv"
+
+        selected = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Choose CSV Log File Name and Location",
+            initialdir=initial_dir,
+            initialfile=initial_file,
+            defaultextension=".csv",
+            filetypes=[("CSV Log Files", "*.csv"), ("All Files", "*.*")]
+        )
+        if selected:
+            data_dir_abs = os.path.abspath("data")
+            if os.path.dirname(os.path.abspath(selected)) == data_dir_abs:
+                self.log_filename_var.set(os.path.basename(selected))
+            else:
+                self.log_filename_var.set(selected)
+
     def _build_logging_panel(self, parent):
         log_frame = ttk.LabelFrame(parent, text="💾 Data Logging & CSV Storage", padding=8)
         log_frame.pack(fill=tk.X)
 
+        # File naming row
+        r_file = ttk.Frame(log_frame)
+        r_file.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(r_file, text="File Name:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+
+        self.log_filename_var = tk.StringVar(value=self._get_default_log_filename())
+        self.entry_log_file = ttk.Entry(r_file, textvariable=self.log_filename_var, font=("Segoe UI", 9))
+        self.entry_log_file.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+
+        self.btn_browse_log = ttk.Button(r_file, text="📂 Browse", width=8, command=self._browse_log_file)
+        self.btn_browse_log.pack(side=tk.LEFT, padx=(0, 2))
+
+        self.btn_reset_log_name = ttk.Button(r_file, text="↺", width=3, command=self._reset_log_filename)
+        self.btn_reset_log_name.pack(side=tk.LEFT)
+
+        # Control and Status row
         r1 = ttk.Frame(log_frame)
         r1.pack(fill=tk.X, pady=2)
 
@@ -398,7 +453,7 @@ class CryoconGUI:
         self.lbl_log_count = ttk.Label(r1, text="0", font=("Segoe UI", 9, "bold"))
         self.lbl_log_count.pack(side=tk.LEFT, padx=4)
 
-        self.lbl_log_file = ttk.Label(log_frame, text="File: --", font=("Segoe UI", 8), foreground="#888")
+        self.lbl_log_file = ttk.Label(log_frame, text="Active File: --", font=("Segoe UI", 8), foreground="#888")
         self.lbl_log_file.pack(anchor=tk.W, pady=(2, 0))
 
     def _build_notebook_tabs(self, parent):
@@ -894,9 +949,39 @@ class CryoconGUI:
 
     def _toggle_logging(self):
         if not self.logging_active:
-            now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            os.makedirs("data", exist_ok=True)
-            self.log_filename = os.path.abspath(os.path.join("data", f"cryocon_log_{now_str}_gui.csv"))
+            user_input = self.log_filename_var.get().strip()
+            if not user_input:
+                user_input = self._get_default_log_filename()
+
+            if not user_input.lower().endswith(".csv"):
+                user_input += ".csv"
+
+            # Determine destination path
+            if os.path.isabs(user_input) or os.path.dirname(user_input):
+                dest_path = os.path.abspath(user_input)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            else:
+                os.makedirs("data", exist_ok=True)
+                dest_path = os.path.abspath(os.path.join("data", user_input))
+
+            # Safety check: confirm overwrite if non-empty file already exists
+            if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                overwrite = messagebox.askyesno(
+                    "Overwrite Existing Log?",
+                    f"The file '{os.path.basename(dest_path)}' already exists and contains data.\n\n"
+                    "Do you want to overwrite it and replace previous data?",
+                    parent=self.root
+                )
+                if not overwrite:
+                    return
+
+            self.log_filename = dest_path
+            # Normalize display in text box
+            if os.path.dirname(dest_path) == os.path.abspath("data"):
+                self.log_filename_var.set(os.path.basename(dest_path))
+            else:
+                self.log_filename_var.set(dest_path)
+
             try:
                 self.log_file = open(self.log_filename, "w", newline="", encoding="utf-8")
                 self.log_writer = csv.writer(self.log_file)
@@ -913,7 +998,10 @@ class CryoconGUI:
 
                 self.btn_toggle_log.config(text="⏹ Stop Logging")
                 self.lbl_log_status.config(text="Logging: RECORDING", foreground="#2e7d32")
-                self.lbl_log_file.config(text=f"File: {os.path.basename(self.log_filename)}")
+                self.lbl_log_file.config(text=f"Active File: {os.path.basename(self.log_filename)}")
+                self.entry_log_file.config(state="disabled")
+                self.btn_browse_log.config(state="disabled")
+                self.btn_reset_log_name.config(state="disabled")
                 self.statusbar.config(text=f"Logging started: {self.log_filename}")
             except Exception as e:
                 messagebox.showerror("Logging Error", f"Could not create CSV file: {e}")
@@ -929,7 +1017,13 @@ class CryoconGUI:
 
             self.btn_toggle_log.config(text="Start Logging (CSV)")
             self.lbl_log_status.config(text="Logging: Inactive", foreground="#666666")
-            self.statusbar.config(text=f"Logging stopped. Records: {self.log_records_count}")
+            self.entry_log_file.config(state="normal")
+            self.btn_browse_log.config(state="normal")
+            self.btn_reset_log_name.config(state="normal")
+            saved_name = os.path.basename(self.log_filename) if self.log_filename else "log"
+            self.statusbar.config(text=f"Logging stopped. Records: {self.log_records_count} saved to {saved_name}")
+            # Refresh to a fresh default timestamp for the next run so user doesn't accidentally overwrite
+            self.log_filename_var.set(self._get_default_log_filename())
 
     def _log_telemetry_row(self):
         t = self.telemetry
