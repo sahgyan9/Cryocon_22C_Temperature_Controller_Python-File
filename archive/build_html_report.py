@@ -425,7 +425,7 @@ Step 4: Write "LOOP 1:SETPT &lt;target&gt;"
 Step 5: Write "CONTROL"</code></pre>
             </li>
             <li><strong>Do Not Use RAMPT / Table Mode:</strong> Internal NVRAM Table 02 still holds legacy bad tuning (I = 30–45 s). Always use <code>LOOP 1:TYPE RAMPP</code>.</li>
-            <li><strong>Hardware Safety Relay:</strong> Ensure front-panel <strong>Over Temperature Disconnect (OTD)</strong> is enabled at <strong>460 K</strong> on Channel A (cannot be set via remote SCPI).</li>
+            <li><strong>Hardware Safety Relay:</strong> Ensure front-panel <strong>Over Temperature Disconnect (OTD)</strong> is enabled at <strong>470 K</strong> on Channel A (cannot be set via remote SCPI).</li>
         </ol>
     </div>
 

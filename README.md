@@ -72,6 +72,6 @@ starting another.
 - **77–300 K zone is untuned.** Its table values are likely wrong for the same
   units reason as Zone 1, but LN₂ changes the dynamics and there is no data yet.
   LN₂ is on order — retune once it arrives.
-- **Over Temperature Disconnect** (Channel A, 460 K) is set by hand on the front
+- **Over Temperature Disconnect** (Channel A, 470 K) is set by hand on the front
   panel and is **not** remotely settable or readable. Re-enter it manually if the
-  instrument is ever reset.
+  instrument is ever reset. (Updated from 460 K).

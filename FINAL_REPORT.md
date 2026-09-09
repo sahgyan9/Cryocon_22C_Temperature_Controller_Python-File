@@ -394,8 +394,8 @@ small increments. Go directly to the temperature you want.
 
 ## 12. Safety configuration
 
-- **Over Temperature Disconnect: ENABLED, Channel A, 460 K.** Set by hand on the
-  front panel. It is **not** remotely settable — every SCPI variant returns `NAK` —
+- **Over Temperature Disconnect: ENABLED, Channel A, 470 K.** Set by hand on the
+  front panel (updated from 460 K). It is **not** remotely settable — every SCPI variant returns `NAK` —
   so no script can set, read back, or restore it. **If the instrument is ever reset
   it must be re-entered manually**, and nothing will warn you that it is missing.
 - Channel B reads a sensor fault, so Channel A is the only usable source.

@@ -495,10 +495,10 @@ be reconstructed from the CSV afterwards.
 
 ## 10. Safety configuration
 
-### Over Temperature Disconnect - CONFIGURED 2026-09-04
+### Over Temperature Disconnect - CONFIGURED 2026-09-04 (UPDATED to 470 K on 2026-09-08)
 
-**Status: ENABLED, source Channel A, trip point 460 K.** Set manually on the
-front panel by the user before the first unattended overnight run.
+**Status: ENABLED, source Channel A, trip point 470 K.** Set manually on the
+front panel by the user (updated from 460 K on 2026-09-08).
 
 **It is NOT remotely settable.** Probed live on this 22C: `SYSTEM:OTD?`,
 `SYSTEM:OTDENAB?`, `SYSTEM:OTDSRC?`, `SYSTEM:OTDSETPT?`, `SYSTEM:OTEMP?` and
@@ -521,14 +521,14 @@ project is software and dies with the Python process.
 | Layer | Trip point | Mechanism | Survives script crash? |
 |---|---|---|---|
 | Per-stage overshoot abort | setpoint + 3 K | `staged_ramp_test.py` sends `STOP` | No |
-| Absolute software ceiling | 460 K | `staged_ramp_test.py --maxtemp` | No |
-| **Over Temperature Disconnect** | **460 K** | **hardware relay, Channel A** | **Yes** |
+| Absolute software ceiling | 470 K | `staged_ramp_test.py --maxtemp` | No |
+| **Over Temperature Disconnect** | **470 K** | **hardware relay, Channel A** | **Yes** |
 
 Note the ordering is correct by design: for every stage the per-stage abort
-(setpoint + 3 K) trips well below 460 K, so the software always acts first and
+(setpoint + 3 K) trips well below 470 K, so the software always acts first and
 shuts down gracefully; the OTD only fires as a genuine last resort. With a final
-target of 450 K and measured overshoot well under 1 K, the 460 K trip leaves
-about 10 K of margin and should never nuisance-trip.
+target of 450 K and measured overshoot well under 1 K, the 470 K trip leaves
+about 20 K of margin and should never nuisance-trip.
 
 `pid_tune_test.py` does **not** send `STOP` on exit - if that process is killed
 mid-ramp the controller keeps heating to its last setpoint. Observed directly on
@@ -673,3 +673,15 @@ noise contribution is ~1% of output. Test before trusting.
 excess ramp power, which is proportional to **ramp rate**. Halving the rate to
 0.5 K/min roughly halves the overshoot, with no tuning risk at all - it just
 costs time (a 100 K climb goes from ~1.7 h to ~3.3 h).
+
+---
+
+## 15. Hardware OTD & Software Ceiling Raised to 470 K (2026-09-08)
+
+The hardware Over-Temperature Disconnect (OTD) trip point on the front panel (Channel A) was manually adjusted by the user from 460 K to 470 K. 
+
+Corresponding updates applied across the codebase:
+- **`staged_ramp_test.py`**: `--maxtemp` default ceiling raised from 460.0 K to 470.0 K.
+- **`cryocon_gui.py`**: Normal operational setpoint check extended from `77–460 K` to `77–470 K`.
+- **System Specifications & Guides**: Updated references in `README.md`, `FINAL_REPORT.md`, `FINAL_REPORT.html`, `LABVIEW_RAMP_CONTROL_GUIDE.md`, `CRYOCON_LABVIEW_BUILD_SPEC.md`, `ANTIGRAVITY_HANDOFF.md`, and `FROSTBYTE_PLAN.md`.
+

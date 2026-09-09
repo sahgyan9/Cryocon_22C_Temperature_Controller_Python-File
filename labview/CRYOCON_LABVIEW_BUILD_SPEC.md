@@ -119,7 +119,7 @@ Section 11 of the report is about this. Do not label it "I Gain".
 | `error out` | error cluster |
 
 Set `Max Power (%)` to a coerced range of 0–70 and `Target Setpoint (K)` to
-0–475. The instrument's Over Temperature Disconnect (Channel A, 460 K) is the
+0–475. The instrument's Over Temperature Disconnect (Channel A, 470 K) is the
 real backstop, but it is set by hand on the front panel and, per section 9, is
 not remotely readable — so the panel limit is your only software guard.
 
@@ -256,7 +256,7 @@ same thresholds `test_ordering.py` uses.
 1. Reconnect the controller and confirm the port. **COM5 was absent while this
    was written** — only COM3 and COM4 existed. Check NI MAX, and update `VISA
    Resource` if it enumerates differently.
-2. Re-enter the Over Temperature Disconnect by hand (Channel A, 460 K) if the
+2. Re-enter the Over Temperature Disconnect by hand (Channel A, 470 K) if the
    instrument has been reset. It is not remotely settable.
 3. First real run: target **5 K above ambient**, watch that peak heater output
    stays under ~25 %. If it pins at `Max Power (%)`, the ordering is wrong —

@@ -54,8 +54,8 @@ sessions lost hours re-deriving or re-testing those. Do not repeat them.
   and idle.
 - Gains left on the controller: P=25, I=900, D=0, Range HI, MAXPWR 70,
   setpoint 375, TYPE RAMPP.
-- **Over Temperature Disconnect is ENABLED, source Channel A, trip 460 K.** It
-  was set by hand on the front panel. It is NOT remotely settable (every SCPI
+- **Over Temperature Disconnect is ENABLED, source Channel A, trip 470 K.** It
+  was set by hand on the front panel (updated from 460 K). It is NOT remotely settable (every SCPI
   variant returns `NAK`) — you cannot read it back, set it, or restore it. If it
   is ever lost it must be re-entered manually via the **Sys** key.
 - Channel B reads a sensor fault (`.......`). Only Channel A is usable.
@@ -130,7 +130,7 @@ The plan is to confirm the gains hold as the setpoint jump grows, walking
 ramp rate, so jump size is the only variable. Use the existing script:
 
 ```bash
-python staged_ramp_test.py --targets 385,390,405,420,450 --rate 1.0 --p 25 --i 900 --d 0 --range HI --maxpwr 70 --band 0.10 --hold 3 --stagepad 25 --maxover 3 --maxtemp 460 --holdhours 0.5
+python staged_ramp_test.py --targets 385,390,405,420,450 --rate 1.0 --p 25 --i 900 --d 0 --range HI --maxpwr 70 --band 0.10 --hold 3 --stagepad 25 --maxover 3 --maxtemp 470 --holdhours 0.5
 ```
 
 Adjust the first target to whatever the station has cooled to. Expect roughly

@@ -744,8 +744,8 @@ class CryoconGUI:
             messagebox.showerror("Invalid Input", "Please check all numeric values before starting.")
             return
 
-        if target < 77.0 or target > 460.0:
-            if not messagebox.askyesno("Confirm Setpoint", f"Target setpoint {target:.1f} K is outside normal range (77-460 K). Proceed?"):
+        if target < 77.0 or target > 470.0:
+            if not messagebox.askyesno("Confirm Setpoint", f"Target setpoint {target:.1f} K is outside normal range (77-470 K). Proceed?"):
                 return
 
         if self.is_arming_ramp:

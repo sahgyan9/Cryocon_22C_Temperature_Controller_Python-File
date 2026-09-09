@@ -139,7 +139,7 @@ stateDiagram-v2
 
 ### Step 1: Pre-Power Inspection & Hardware Setup
 1. Confirm Janis probe station vacuum is $\le 10^{-4}\text{ Torr}$ before engaging heating.
-2. Confirm the physical Over-Temperature Disconnect (OTD) is manually verified on the 22C front panel (Channel A set to $460\text{ K}$).
+2. Confirm the physical Over-Temperature Disconnect (OTD) is manually verified on the 22C front panel (Channel A set to $470\text{ K}$).
 3. Connect RS-232 cable to the PC (`COM5`).
 
 ### Step 2: Launching the VI

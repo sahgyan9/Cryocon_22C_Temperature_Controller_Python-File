@@ -313,7 +313,7 @@ if __name__ == "__main__":
                     help="Minutes allowed beyond the ideal ramp time before timing out a stage")
     ap.add_argument("--maxover", type=float, default=3.0,
                     help="Abort if temperature exceeds the stage setpoint by this many K")
-    ap.add_argument("--maxtemp", type=float, default=460.0,
+    ap.add_argument("--maxtemp", type=float, default=470.0,
                     help="Absolute ceiling; abort immediately above this")
     ap.add_argument("--holdhours", type=float, default=8.0,
                     help="Hours to hold the final setpoint under watchdog")

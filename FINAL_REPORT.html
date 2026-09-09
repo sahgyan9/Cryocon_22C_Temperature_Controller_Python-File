@@ -520,7 +520,7 @@ CONTROL?          <span class="c">confirm it returns OFF</span></pre>
   <h2><span class="num">13</span>Safety configuration</h2>
   <div class="note stop">
     <span class="lbl">Over Temperature Disconnect</span>
-    <p><strong>Enabled, Channel A, 460 K</strong> — set by hand on the front panel. It is <em>not</em> remotely settable; every SCPI variant returns <code>NAK</code>, so no script can set, read back, or restore it. <strong>If the instrument is ever reset it must be re-entered manually</strong>, and nothing will warn you it is missing.</p>
+    <p><strong>Enabled, Channel A, 470 K</strong> — set by hand on the front panel (updated from 460 K). It is <em>not</em> remotely settable; every SCPI variant returns <code>NAK</code>, so no script can set, read back, or restore it. <strong>If the instrument is ever reset it must be re-entered manually</strong>, and nothing will warn you it is missing.</p>
   </div>
   <ul>
     <li>Channel B reads a sensor fault, so Channel A is the only usable OTD source.</li>
