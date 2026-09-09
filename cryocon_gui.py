@@ -247,27 +247,53 @@ class CryoconGUI:
         card_frame = ttk.LabelFrame(parent, text="Live Instrument Telemetry", padding=8)
         card_frame.pack(fill=tk.X, pady=(0, 6))
 
+        # Temperature Unit Selection Toolbar
+        unit_toolbar = ttk.Frame(card_frame)
+        unit_toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", padx=3, pady=(0, 6))
+
+        ttk.Label(unit_toolbar, text="Display Unit:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(2, 8))
+
+        self.temp_unit_var = tk.StringVar(value="C")
+
+        self.rb_unit_c = ttk.Radiobutton(
+            unit_toolbar, text="Celsius (°C)", variable=self.temp_unit_var, value="C",
+            command=self._on_unit_change
+        )
+        self.rb_unit_c.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.rb_unit_k = ttk.Radiobutton(
+            unit_toolbar, text="Kelvin (K)", variable=self.temp_unit_var, value="K",
+            command=self._on_unit_change
+        )
+        self.rb_unit_k.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.rb_unit_dual = ttk.Radiobutton(
+            unit_toolbar, text="Dual (K & °C)", variable=self.temp_unit_var, value="DUAL",
+            command=self._on_unit_change
+        )
+        self.rb_unit_dual.pack(side=tk.LEFT, padx=(0, 8))
+
         # Channel A (Sample Stage) - Full Width Primary Readout
         f_a = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=8)
-        f_a.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=3, pady=3)
+        f_a.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=3, pady=3)
         ttk.Label(f_a, text="SAMPLE STAGE TEMPERATURE (Channel A)", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
-        self.lbl_temp_a = ttk.Label(f_a, text="--.--- K", style="ReadoutValueA.TLabel")
+        self.lbl_temp_a = ttk.Label(f_a, text="--.--- °C", style="ReadoutValueA.TLabel")
         self.lbl_temp_a.pack(anchor=tk.CENTER)
         self.lbl_status_a = ttk.Label(f_a, text="Active Control Sensor (Janis ST-LN-500)", style="SubText.TLabel")
         self.lbl_status_a.pack(anchor=tk.CENTER)
 
         # Setpoint & Tracking
         f_sp = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_sp.grid(row=1, column=0, sticky="nsew", padx=3, pady=3)
+        f_sp.grid(row=2, column=0, sticky="nsew", padx=3, pady=3)
         ttk.Label(f_sp, text="SETPOINT & TRACKING", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
-        self.lbl_setpt = ttk.Label(f_sp, text="--.--- K", style="ReadoutValueSP.TLabel")
+        self.lbl_setpt = ttk.Label(f_sp, text="--.--- °C", style="ReadoutValueSP.TLabel")
         self.lbl_setpt.pack(anchor=tk.CENTER)
-        self.lbl_error = ttk.Label(f_sp, text="Error: --.--- K", font=("Segoe UI", 9, "bold"), foreground="#555")
+        self.lbl_error = ttk.Label(f_sp, text="Error: --.--- °C", font=("Segoe UI", 9, "bold"), foreground="#555")
         self.lbl_error.pack(anchor=tk.CENTER)
 
         # Heater Output %
         f_ht = ttk.Frame(card_frame, relief=tk.RIDGE, borderwidth=1, padding=6)
-        f_ht.grid(row=1, column=1, sticky="nsew", padx=3, pady=3)
+        f_ht.grid(row=2, column=1, sticky="nsew", padx=3, pady=3)
         ttk.Label(f_ht, text="HEATER POWER OUTPUT", style="ReadoutTitle.TLabel").pack(anchor=tk.W)
         self.lbl_heater = ttk.Label(f_ht, text="0.0 %", style="ReadoutValueHT.TLabel")
         self.lbl_heater.pack(anchor=tk.CENTER)
@@ -279,7 +305,7 @@ class CryoconGUI:
 
         # Status Badges
         badge_frame = ttk.Frame(card_frame)
-        badge_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        badge_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         self.badge_ctrl = tk.Label(badge_frame, text="CONTROL: OFF", bg="#ffcdd2", fg="#b71c1c",
                                    font=("Segoe UI", 8, "bold"), padx=6, pady=2, relief=tk.GROOVE)
@@ -317,6 +343,17 @@ class CryoconGUI:
             btn = ttk.Button(r1, text=f"{int(p_temp)}K", width=5,
                              command=lambda t=p_temp: self._set_target_preset(t))
             btn.pack(side=tk.LEFT, padx=1)
+
+        self.btn_inline_ramp = tk.Button(r1, text="▶ START RAMP", font=("Segoe UI", 9, "bold"),
+                                         bg="#1b5e20", fg="white", activebackground="#2e7d32", activeforeground="white",
+                                         command=self._start_anti_surge_ramp, padx=8, pady=1, relief=tk.RAISED)
+        self.btn_inline_ramp.pack(side=tk.LEFT, padx=(6, 0))
+
+        # Keyboard & Focus bindings for Target Temp
+        self.ent_target_temp.bind("<Return>", lambda e: self._start_anti_surge_ramp())
+        self.ent_target_temp.bind("<KP_Enter>", lambda e: self._start_anti_surge_ramp())
+        self.ent_target_temp.bind("<FocusOut>", self._on_target_focus_out)
+        self.ent_target_temp.bind("<KeyRelease>", self._on_target_key_release)
 
         # Ramp Rate & Hardware Limits Row
         r2 = ttk.Frame(ramp_frame)
@@ -357,6 +394,11 @@ class CryoconGUI:
         self.ent_d.pack(side=tk.LEFT, padx=(2, 10))
 
         ttk.Button(r3, text="↺ Defaults", width=9, command=self._reset_validated_defaults).pack(side=tk.LEFT)
+
+        # Allow pressing Enter in parameter fields to trigger ramp as well
+        for ent in (self.ent_rate, self.ent_maxpwr, self.ent_p, self.ent_i, self.ent_d):
+            ent.bind("<Return>", lambda e: self._start_anti_surge_ramp())
+            ent.bind("<KP_Enter>", lambda e: self._start_anti_surge_ramp())
 
         ttk.Separator(ramp_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
 
@@ -706,6 +748,49 @@ class CryoconGUI:
     def _set_target_preset(self, temp_val):
         self.ent_target_temp.delete(0, tk.END)
         self.ent_target_temp.insert(0, f"{temp_val:.1f}")
+        c_val = temp_val - 273.15
+        self.lbl_ramp_status.config(
+            text=f"Status: Preset {temp_val:.1f} K ({c_val:.1f} °C) loaded. Press Enter or '▶ START RAMP' to begin.",
+            foreground="#0066cc"
+        )
+        self.ent_target_temp.focus_set()
+
+    def _on_target_focus_out(self, event=None):
+        val_str = self.ent_target_temp.get().strip()
+        try:
+            val = float(val_str)
+            self.ent_target_temp.delete(0, tk.END)
+            self.ent_target_temp.insert(0, f"{val:.1f}")
+            c_val = val - 273.15
+            if 77.0 <= val <= 460.0:
+                self.lbl_ramp_status.config(
+                    text=f"Status: Target {val:.1f} K ({c_val:.1f} °C) ready. Press Enter or '▶ START RAMP' to begin.",
+                    foreground="#0066cc"
+                )
+            else:
+                self.lbl_ramp_status.config(
+                    text=f"Status: ⚠ Target {val:.1f} K ({c_val:.1f} °C) outside normal range (77-460 K).",
+                    foreground="#c62828"
+                )
+        except ValueError:
+            if val_str:
+                self.lbl_ramp_status.config(
+                    text="Status: ⚠ Invalid target temperature format.",
+                    foreground="#c62828"
+                )
+
+    def _on_target_key_release(self, event=None):
+        if event and event.keysym in ("Return", "KP_Enter"):
+            return
+        val_str = self.ent_target_temp.get().strip()
+        try:
+            val = float(val_str)
+            self.lbl_ramp_status.config(
+                text=f"Status: Target {val:.1f} K (Uncommitted) — Press Enter or '▶ START RAMP'",
+                foreground="#e65100"
+            )
+        except ValueError:
+            pass
 
     def _reset_validated_defaults(self):
         self.ent_p.delete(0, tk.END)
@@ -726,7 +811,7 @@ class CryoconGUI:
         self.combo_range.set(DEFAULT_RANGE)
         self.statusbar.config(text="Reset controls to validated tuning defaults (P=40, I=900, D=0, MaxPwr=70%, Range=HI)")
 
-    def _start_anti_surge_ramp(self):
+    def _start_anti_surge_ramp(self, event=None):
         """Dispatches the validated anti-surge ramp arming sequence in a worker thread."""
         if not self.comm.connected:
             messagebox.showwarning("Not Connected", "Please connect to the Cryocon 22C controller first.")
@@ -754,6 +839,8 @@ class CryoconGUI:
 
         self.is_arming_ramp = True
         self.btn_start_ramp.config(state=tk.DISABLED)
+        if hasattr(self, 'btn_inline_ramp'):
+            self.btn_inline_ramp.config(state=tk.DISABLED)
         self.lbl_ramp_status.config(text=f"Arming ramp to {target:.2f} K (Anti-Surge Sequence)...", foreground="#e65100")
 
         self.ramp_worker_thread = threading.Thread(
@@ -802,10 +889,11 @@ class CryoconGUI:
             self._update_ramp_ui_status("Step 5/6: Arming RAMPP mode...")
             self.comm.send("LOOP 1:TYPE RAMPP", wait=0.3)
 
-            self._update_ramp_ui_status(f"Step 6/6: Sending target setpoint {target:.2f} K (Arms Ramp)...")
+            self._update_ramp_ui_status(f"Step 6/6: Sending target setpoint {target:.2f} K ({target - 273.15:.2f} °C) (Arms Ramp)...")
             self.comm.send(f"LOOP 1:SETPT {target:.3f}", wait=0.3)
 
-            msg = f"✓ RAMP ACTIVE: Climbing to {target:.2f} K @ {rate:.2f} K/min (Anti-Surge OK)"
+            target_c = target - 273.15
+            msg = f"✓ RAMP ACTIVE: Climbing to {target:.2f} K ({target_c:.2f} °C) @ {rate:.2f} K/min (Anti-Surge OK)"
             self._update_ramp_ui_status(msg, foreground="#1b5e20")
             self.root.after(0, lambda: self.statusbar.config(text=msg))
 
@@ -815,6 +903,8 @@ class CryoconGUI:
         finally:
             self.is_arming_ramp = False
             self.root.after(0, lambda: self.btn_start_ramp.config(state=tk.NORMAL))
+            if hasattr(self, 'btn_inline_ramp'):
+                self.root.after(0, lambda: self.btn_inline_ramp.config(state=tk.NORMAL))
 
     def _update_ramp_ui_status(self, text, foreground="#333333"):
         self.root.after(0, lambda: self.lbl_ramp_status.config(text=f"Status: {text}", foreground=foreground))
@@ -831,7 +921,8 @@ class CryoconGUI:
 
         self.comm.send("LOOP 1:TYPE PID", wait=0.3)
         self.comm.send(f"LOOP 1:SETPT {t_now:.3f}", wait=0.3)
-        msg = f"Holding at current temperature {t_now:.3f} K (Type PID)"
+        t_now_c = t_now - 273.15
+        msg = f"Holding at current temperature {t_now:.3f} K ({t_now_c:.2f} °C) (Type PID)"
         self.lbl_ramp_status.config(text=f"Status: {msg}", foreground="#0066cc")
         self.statusbar.config(text=msg)
 
@@ -1039,20 +1130,54 @@ class CryoconGUI:
         self.log_file.flush()
         self.log_records_count += 1
 
+    def _on_unit_change(self):
+        """Immediately refreshes the display readouts when the temperature unit selection changes."""
+        self._update_gui_readouts()
+
     def _update_gui_readouts(self):
         t = self.telemetry
+        unit = getattr(self, "temp_unit_var", None)
+        mode = unit.get() if unit else "C"
 
-        # Channel A
-        if t['temp_a'] == t['temp_a']:  # Not NaN
-            self.lbl_temp_a.config(text=f"{t['temp_a']:.3f} K")
+        # Channel A (Reading Temperature)
+        if t['temp_a'] == t['temp_a'] and t['temp_a'] > 0:  # Not NaN and valid reading
+            ta_k = t['temp_a']
+            ta_c = ta_k - 273.15
+            if mode == "C":
+                self.lbl_temp_a.config(text=f"{ta_c:.3f} °C")
+                self.lbl_status_a.config(text=f"Active Control Sensor (Janis ST-LN-500)  •  {ta_k:.3f} K")
+            elif mode == "DUAL":
+                self.lbl_temp_a.config(text=f"{ta_c:.3f} °C  ({ta_k:.3f} K)")
+                self.lbl_status_a.config(text="Active Control Sensor (Janis ST-LN-500)")
+            else:  # "K"
+                self.lbl_temp_a.config(text=f"{ta_k:.3f} K")
+                self.lbl_status_a.config(text=f"Active Control Sensor (Janis ST-LN-500)  •  {ta_c:.2f} °C")
         else:
-            self.lbl_temp_a.config(text="--.--- K")
+            sym = "°C" if mode == "C" else ("K" if mode == "K" else "°C (K)")
+            self.lbl_temp_a.config(text=f"--.--- {sym}")
+            self.lbl_status_a.config(text="Active Control Sensor (Janis ST-LN-500)")
 
-        # Setpoint & Error
-        self.lbl_setpt.config(text=f"{t['setpoint']:.3f} K")
-        err_sign = "+" if t['error'] >= 0 else ""
-        err_color = "#2e7d32" if abs(t['error']) <= 0.10 else ("#e65100" if abs(t['error']) <= 0.50 else "#c62828")
-        self.lbl_error.config(text=f"Error: {err_sign}{t['error']:.3f} K", foreground=err_color)
+        # Setpoint & Error (Target Temperature)
+        if t['setpoint'] > 0:
+            sp_k = t['setpoint']
+            sp_c = sp_k - 273.15
+            err_k = t['error']
+            err_sign = "+" if err_k >= 0 else ""
+            err_color = "#2e7d32" if abs(err_k) <= 0.10 else ("#e65100" if abs(err_k) <= 0.50 else "#c62828")
+
+            if mode == "C":
+                self.lbl_setpt.config(text=f"{sp_c:.3f} °C")
+                self.lbl_error.config(text=f"Error: {err_sign}{err_k:.3f} °C  ({sp_k:.3f} K)", foreground=err_color)
+            elif mode == "DUAL":
+                self.lbl_setpt.config(text=f"{sp_c:.3f} °C")
+                self.lbl_error.config(text=f"Error: {err_sign}{err_k:.3f} °C  ({sp_k:.3f} K)", foreground=err_color)
+            else:  # "K"
+                self.lbl_setpt.config(text=f"{sp_k:.3f} K")
+                self.lbl_error.config(text=f"Error: {err_sign}{err_k:.3f} K  ({sp_c:.2f} °C)", foreground=err_color)
+        else:
+            sym = "°C" if mode == "C" else ("K" if mode == "K" else "°C (K)")
+            self.lbl_setpt.config(text=f"--.--- {sym}")
+            self.lbl_error.config(text=f"Error: --.--- {sym}", foreground="#555")
 
         # Heater Output
         self.lbl_heater.config(text=f"{t['heater_pwr']:.1f} %")
