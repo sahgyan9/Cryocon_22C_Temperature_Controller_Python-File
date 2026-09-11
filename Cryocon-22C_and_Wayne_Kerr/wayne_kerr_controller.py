@@ -95,30 +95,38 @@ class WayneKerr6500B:
                 self.connected = True
                 return True
 
-            try:
-                self.rm = pyvisa.ResourceManager()
-                self.instrument = self.rm.open_resource(
-                    self.resource_name,
-                    timeout=int(self.timeout * 1000)
-                )
-                self.instrument.read_termination = '\n'
-                self.instrument.write_termination = '\n'
-
-                idn = self.instrument.query("*IDN?").strip()
+            last_err = None
+            for backend in ["", "@py"]:
                 try:
-                    self.options = self.instrument.query("*OPT?").strip()
-                    self.has_bias_option = ("/D1" in self.options or "D1" in self.options)
-                except Exception:
-                    self.options = "0"
-                    self.has_bias_option = False
+                    rm = pyvisa.ResourceManager(backend) if backend else pyvisa.ResourceManager()
+                    inst = rm.open_resource(
+                        self.resource_name,
+                        timeout=int(self.timeout * 1000)
+                    )
+                    inst.read_termination = '\n'
+                    inst.write_termination = '\n'
 
-                self.connected = True
-                print(f"[OK] Connected to Wayne Kerr on {self.resource_name}: {idn} (Options: {self.options})")
-                return True
-            except Exception as e:
-                print(f"[ERROR] Connection to Wayne Kerr on {self.resource_name} failed: {e}")
-                self.connected = False
-                return False
+                    idn = inst.query("*IDN?").strip()
+                    try:
+                        self.options = inst.query("*OPT?").strip()
+                        self.has_bias_option = ("/D1" in self.options or "D1" in self.options)
+                    except Exception:
+                        self.options = "0"
+                        self.has_bias_option = False
+
+                    self.rm = rm
+                    self.instrument = inst
+                    self.connected = True
+                    backend_label = f" ({backend} backend)" if backend else ""
+                    print(f"[OK] Connected to Wayne Kerr on {self.resource_name}{backend_label}: {idn} (Options: {self.options})")
+                    return True
+                except Exception as e:
+                    last_err = e
+                    continue
+
+            print(f"[ERROR] Connection to Wayne Kerr on {self.resource_name} failed: {last_err}")
+            self.connected = False
+            return False
 
     def disconnect(self) -> None:
         """Safely disconnect instrument."""
