@@ -51,6 +51,14 @@ makes the heater slam to its power limit the moment control is switched on.
 | `labview/` | LabVIEW port — build spec, 22C simulator, ActiveX test harness |
 | `archive/` | Superseded scripts and the earlier report's generators |
 | `data_backup_20260904/` | Independent backup taken mid-study |
+| `Cryocon-22C_and_Wayne_Kerr/` | Unified suite: Wayne Kerr 6510B Impedance Analyzer + Cryo-con 22C |
+
+## Integrated Suite: Wayne Kerr 6510B & Cryo-con 22C
+
+The folder [`Cryocon-22C_and_Wayne_Kerr/`](Cryocon-22C_and_Wayne_Kerr/) contains the unified impedance spectroscopy software:
+- **`unified_gui.py`**: Unified GUI orchestrating simultaneous temperature ramps and multi-frequency dielectric impedance sweeps.
+- **Launcher**: Run `Cryocon-22C_and_Wayne_Kerr\run_gui.bat` or `python Cryocon-22C_and_Wayne_Kerr/unified_gui.py`.
+- **Documentation**: See [`Cryocon-22C_and_Wayne_Kerr/README.md`](Cryocon-22C_and_Wayne_Kerr/README.md) for Wayne Kerr GPIB setup, Cryocon serial wiring, and automated run workflows.
 
 ## Scripts
 

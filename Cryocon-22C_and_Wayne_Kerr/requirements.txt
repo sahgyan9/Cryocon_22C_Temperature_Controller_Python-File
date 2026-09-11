@@ -1,0 +1,9 @@
+# Unified Automation Suite Dependencies
+# Cryocon 22C Temperature Controller & Wayne Kerr 6510B Impedance Analyzer
+
+pyvisa>=1.13.0
+pyvisa-py>=0.7.0
+pyserial>=3.5
+numpy>=1.24.0
+matplotlib>=3.7.0
+pandas>=2.0.0
