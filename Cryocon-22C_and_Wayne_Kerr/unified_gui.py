@@ -1393,6 +1393,45 @@ class UnifiedLabGUI:
             # Start continuous thermal monitor
             self._monitor_active = True
             threading.Thread(target=self._background_telemetry_monitor, daemon=True).start()
+        elif c_ok and not w_ok:
+            if self.wayne_kerr:
+                self.wayne_kerr.disconnect()
+                self.wayne_kerr = None
+            status_txt = "[CONNECTED - CRYOCON ONLY]" if not mock else "[CONNECTED - MOCK CRYOCON]"
+            self.lbl_conn_status.config(text=status_txt, foreground="#d97706")
+            self.btn_connect.config(state=tk.DISABLED)
+            self.btn_disconnect.config(state=tk.NORMAL)
+            self.lbl_status.config(
+                text=f"Cryocon 22C connected on {port}. Wayne Kerr offline ({visa_res} not found).",
+                foreground="#d97706"
+            )
+            # Start continuous thermal monitor for Cryocon
+            self._monitor_active = True
+            threading.Thread(target=self._background_telemetry_monitor, daemon=True).start()
+            messagebox.showwarning(
+                "Wayne Kerr Offline",
+                f"✓ Successfully connected to Cryocon 22C on {port}.\n\n"
+                f"⚠ Wayne Kerr on {visa_res} was not found (Offline).\n\n"
+                f"Live temperature telemetry and control are now active!\n"
+                f"To run impedance sweeps, power on Wayne Kerr and ensure GPIB/VISA is connected."
+            )
+        elif w_ok and not c_ok:
+            if self.cryocon:
+                self.cryocon.disconnect()
+                self.cryocon = None
+            status_txt = "[CONNECTED - WAYNE KERR ONLY]" if not mock else "[CONNECTED - MOCK WAYNE KERR]"
+            self.lbl_conn_status.config(text=status_txt, foreground="#d97706")
+            self.btn_connect.config(state=tk.DISABLED)
+            self.btn_disconnect.config(state=tk.NORMAL)
+            self.lbl_status.config(
+                text=f"Wayne Kerr connected on {visa_res}. Cryocon offline ({port} not found).",
+                foreground="#d97706"
+            )
+            messagebox.showwarning(
+                "Cryocon Offline",
+                f"✓ Successfully connected to Wayne Kerr on {visa_res}.\n\n"
+                f"⚠ Cryocon 22C on {port} was not found (Offline)."
+            )
         else:
             err = []
             if not c_ok:
@@ -1452,6 +1491,15 @@ class UnifiedLabGUI:
     def start_experiment(self):
         if not self.cryocon or not self.cryocon.connected:
             messagebox.showwarning("Not Connected", "Please connect hardware or enable 'Mock Mode' first.")
+            return
+
+        if not self.wayne_kerr or not self.wayne_kerr.connected:
+            messagebox.showwarning(
+                "Wayne Kerr Required",
+                "Cannot start automated impedance experiment:\n"
+                "Wayne Kerr 6510B impedance analyzer is not connected.\n\n"
+                "Please power on Wayne Kerr, connect GPIB/VISA, or enable 'Mock Mode'."
+            )
             return
 
         try:
