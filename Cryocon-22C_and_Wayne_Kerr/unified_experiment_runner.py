@@ -9,7 +9,7 @@ Core Pipeline for each target temperature:
    CONTROL, waits 3s, then switches to RAMPP mode and arms target setpoint.
 2. In-Band Stabilization: Monitors until |T_stage - T_target| <= band (default 0.10 K).
 3. 5-Minute Sample Thermal Soak: Holds within band for 300 seconds to allow the
-   PMN-PT crystal sample to thermally equilibrate with the cryostat cold head.
+   PMN-0.3PT crystal/ceramic sample to thermally equilibrate with the cryostat cold head.
    (Timer automatically resets if temperature drifts outside the band).
 4. Automated 200-Point Frequency Sweep: Sweeps 20 Hz to 10 MHz logarithmically
    at 100 mV AC drive level, saving directly to:

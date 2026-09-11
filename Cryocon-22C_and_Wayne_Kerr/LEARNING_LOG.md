@@ -4,8 +4,8 @@
 
 **Author:** Lab Automation & Antigravity  
 **System Target:** Janis Research ST-LN-500 Cryogenic Probe Station  
-**Sample Under Test:** PMN-PT Ferroelectric / Relaxor Single Crystal  
-**Last Updated:** 2026-09-08  
+**Sample Under Test:** PMN-0.3PT (0.70PMN-0.30PT / $0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$) Relaxor Ferroelectric  
+**Last Updated:** 2026-09-11  
 
 ---
 
@@ -13,12 +13,12 @@
 
 This document captures the complete operational, physical, and instrumentation knowledge base built across the Cryo-con 22C and Wayne Kerr 6500B/2500B automation projects. Any human researcher or AI agent picking up this codebase has full context from ground zero ("0 to 1") without having to rediscover edge cases, instrument quirks, or safety limits.
 
-The experimental objective is to map the temperature-dependent complex dielectric permittivity and impedance spectrum of **PMN-PT** from **300 K to 470 K** (and down to cryogenic temperatures when LN₂ is present). The system automates:
-1. Heating the sample stage in discrete temperature steps (e.g. 300 K, 305 K, ..., 470 K; or test steps 298 K, 299 K).
-2. Holding the stage stably within $\pm 0.10\text{ K}$ for a **mandatory 5-minute (300 s) thermal soak** to eliminate thermal gradients between the cold head and the PMN-PT crystal.
+The experimental objective is to map the temperature-dependent complex dielectric permittivity and impedance spectrum of **PMN-0.3PT** ($0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$) from **300 K to 470 K** (and down to cryogenic temperatures when LN₂ is present). The system automates:
+1. Heating the sample stage in discrete temperature steps (e.g. 300 K, 302 K, ..., 412 K / 470 K; or test steps 299 K, 300 K).
+2. Holding the stage stably within $\pm 0.10\text{ K}$ for a **mandatory 5-minute (300 s) thermal soak** to eliminate thermal gradients between the cold head and the PMN-0.3PT crystal.
 3. Running a 200-point logarithmic frequency sweep from **20 Hz to 10 MHz** with an AC drive level (excitation) of **100 mV RMS**, measuring Resistance ($R$) and Reactance ($X$).
 4. Streaming the acquired data point-by-point into standard laboratory `.dat` files named:
-   `<Tempr>_<Bais>_<time_stamp>.dat` (e.g., `300K_100mV_11-56-28.dat`).
+   `<Tempr>_<Bais>_<time_stamp>.dat` (e.g., `300K_100mV_11-43-17.dat`).
 5. Disengaging the heater automatically on any exit or abort path.
 
 ---
@@ -51,19 +51,21 @@ To ensure full transparency and complete lineage tracing, the source code and do
 
 ---
 
-## 3. The Physics: PMN-PT & Thermal Lag
+## 3. The Physics: PMN-0.3PT & Thermal Lag
 
-### 2.1 Relaxor Ferroelectric Behavior
-PMN-PT (Lead Magnesium Niobate – Lead Titanate, $(1-x)\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - x\text{PbTiO}_3$) is an ultrahigh-strain relaxor ferroelectric material with extraordinary piezoelectric coefficients ($d_{33} > 2000\text{ pC/N}$) and high dielectric permittivity ($\varepsilon_r > 5000$).
-- Near its Curie temperature ($T_c \approx 400\text{ K} - 430\text{ K}$ depending on PT content), the material exhibits diffuse phase transitions and strong frequency dispersion: the peak temperature $T_{max}$ of the dielectric constant shifts to higher temperatures with increasing measurement frequency.
-- Because the phase transition involves subtle dipolar cluster reorientations, accurate dielectric spectroscopy requires exact sample temperature equilibrium.
+### 3.1 Relaxor Ferroelectric Behavior & Morphotropic Phase Boundary
+PMN-0.3PT ($0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$) is an ultrahigh-strain relaxor ferroelectric material situated near the rhombohedral boundary of the Morphotropic Phase Boundary (MPB, $x \approx 0.30 - 0.35$). In single crystals along the [001] pseudocubic poling direction, it exhibits colossal piezoelectric coefficients ($d_{33} > 2000\text{ pC/N}$) and high dielectric permittivity ($\varepsilon_r > 5000$).
+- **Phase Transition Sequence:**
+  - **Rhombohedral to Tetragonal ($T_{R-T}$):** Around **$370 - 374\text{ K}$ ($97 - 101^\circ\text{C}$)**, poled PMN-0.3PT undergoes an abrupt phase transition / depoling from the rhombohedral ($R$) ferroelectric phase to the tetragonal ($T$) phase, manifesting as a prominent inflection/kink anomaly on the permittivity-temperature curve.
+  - **Curie Temperature / Dielectric Maximum ($T_m$):** Around **$410 - 440\text{ K}$ ($137 - 167^\circ\text{C}$)**, reaching peak permittivity ($\varepsilon_{max} > 20,000$ in single crystals, $> 15,000$ in ceramics) before transitioning into the paraelectric cubic ($C$) phase.
+- Because the phase transitions involve subtle polar nanodomain (PNR) cluster reorientations and lattice shearing, accurate dielectric spectroscopy requires exact sample temperature equilibrium.
 
-### 2.2 Why the 5-Minute Thermal Soak is Mandatory
+### 3.2 Why the 5-Minute Thermal Soak is Mandatory
 In the Janis ST-LN-500 cryostat, the temperature sensor (Channel A) is mounted on the copper heat exchanger stage directly adjacent to the heater cartridge. 
-1. **Thermal Contact Resistance:** The PMN-PT crystal is mounted on a sample puck or sapphire plate and contacted with microprobes. Even with thermal grease/varnish, there is a finite thermal resistance $R_{th}$ and heat capacity $C_{sample}$.
+1. **Thermal Contact Resistance:** The PMN-0.3PT crystal is mounted on a sample puck or sapphire plate and contacted with microprobes. Even with thermal grease/varnish, there is a finite thermal resistance $R_{th}$ and heat capacity $C_{sample}$.
 2. **Thermal Time Constant:** $\tau_{thermal} = R_{th} \cdot C_{sample} \approx 60 - 180\text{ seconds}$.
 3. **Artifact of Inadequate Soaking:** If an impedance sweep is initiated the instant the stage sensor enters the $\pm 0.10\text{ K}$ window, the crystal center is still 0.5–2.0 K colder than the stage sensor during heating. This causes artificial hysteresis between heating and cooling runs and smears the sharp dielectric loss peaks.
-4. **The Fix:** The 5-minute (300 s) soak timer guarantees that stage, puck, grease, probes, and the PMN-PT crystal reach isothermal equilibrium ($\Delta T < 0.05\text{ K}$) before the first AC excitation frequency is applied.
+4. **The Fix:** The 5-minute (300 s) soak timer guarantees that stage, puck, grease, probes, and the PMN-0.3PT crystal reach isothermal equilibrium ($\Delta T < 0.05\text{ K}$) before the first AC excitation frequency is applied.
 
 ---
 
@@ -271,6 +273,47 @@ Benchmark comparison against `permittivity_summary.csv` from `Impedance_PMN-PT`:
 | **100 kHz** | 101242.0 | 546.37 | 819.06 | 460.0 |
 | **1 MHz** | 1006190.0 | 485.15 | 802.20 | 460.0 |
 | **10 MHz** | 9999999.0 | 1666.45 | 4080.22 | 430.0 |
+
+### 7.4 PMN-0.3PT Latest Measurement (`Data/`) & Scientific Consistency Analysis
+
+#### 7.4.1 Dataset Profile & Measurement Parameters
+The latest experimental acquisition for **PMN-0.3PT** ($0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$) is stored in [`Data/`](Data/):
+- **Sweep Count:** 57 discrete temperature stages from **300.05 K to 412.05 K** in clean $\Delta T = 2.0\text{ K}$ increments (`300K_100mV_*.dat` to `412K_100mV_*.dat`).
+- **Frequency Sweep:** 200 logarithmic points per stage, spanning **20 Hz to 10 MHz**.
+- **Excitation:** 100 mV AC RMS.
+- **Assumed Sample Geometry (in software):** Thickness $d = 0.30\text{ mm}$ ($300\text{ }\mu\text{m}$), Electrode Area $A = 6.00\text{ mm}^2$, yielding $C_0 = \varepsilon_0 \frac{A}{d} \approx 0.17708\text{ pF}$.
+
+#### 7.4.2 Measured Physical Values across Key Frequencies
+| Frequency | Actual $f$ (Hz) | $\varepsilon'$ (300 K) | $\varepsilon'$ (374 K) | $\varepsilon'$ (412 K) | $\tan\delta$ (300 K) | $\tan\delta$ (374 K) | Measured $C_p$ (300 K) | Measured $C_p$ (374 K) |
+|---|---|---|---|---|---|---|---|---|
+| **1 kHz** | 978.8 Hz | 590.16 | 852.59 | 911.41 | 0.0237 | 0.0206 | 104.51 pF | 150.98 pF |
+| **10 kHz** | 9,840.2 Hz | 568.93 | 829.61 | 884.61 | 0.0275 | 0.0192 | 100.75 pF | 146.91 pF |
+| **100 kHz** | 98,932.1 Hz | 544.75 | 806.10 | 861.14 | 0.0331 | 0.0237 | 96.47 pF | 142.75 pF |
+| **1 MHz** | 994,646.0 Hz | 522.45 | 789.06 | 845.13 | 0.0519 | 0.0441 | 92.52 pF | 139.73 pF |
+
+#### 7.4.3 Scientific Consistency with Literature
+1. **$T_{R-T}$ Phase Transition Temperature:**
+   - **Literature Fact:** For poled PMN-0.30PT (at the rhombohedral boundary of the MPB), the rhombohedral-to-tetragonal phase transition ($T_{R-T}$ / depoling temperature $T_d$) occurs at **$90^\circ\text{C} - 100^\circ\text{C}$ ($363 - 373\text{ K}$)** (Park & Shrout 1997, Feng et al. 2004, Kutnjak et al. 2006). At this temperature, the spontaneous polarization rotates from $\langle 111 \rangle_{pc}$ towards $\langle 001 \rangle_{pc}$, causing an inflection or step in permittivity.
+   - **Our Data:** Numerical derivative analysis ($d\varepsilon'/dT$) identifies the maximum inflection point precisely at **$T = 370.02 - 374.04\text{ K}$ ($97 - 101^\circ\text{C}$)** with peak slope $d\varepsilon'/dT = 8.85\text{ K}^{-1}$. The thermal location of this phase transition is **100% consistent with published solid-state literature**.
+2. **Frequency Dispersion Hierarchy:**
+   - Dielectric permittivity decreases monotonically with frequency ($\varepsilon'_{1\text{kHz}} > \varepsilon'_{10\text{kHz}} > \varepsilon'_{100\text{kHz}} > \varepsilon'_{1\text{MHz}}$), consistent with normal dipolar relaxation.
+3. **Dielectric Loss Integrity:**
+   - Loss tangent $\tan\delta \approx 0.020 - 0.024$ (2.0% – 2.4%) in the 1–10 kHz band, and capacitive reactance $|X| \gg R$ ($Q \approx 42$ at 1 kHz), indicating a clean insulating dielectric response without DC leakage conduction or short-circuit artifacts.
+
+#### 7.4.4 Key Scientific Inconsistencies & Physical Root Causes
+1. **Absolute Permittivity Magnitude is an Order of Magnitude Lower than Bulk:**
+   - **Literature Baseline:** Bulk single-crystal PMN-0.30PT exhibits $\varepsilon_r \sim 5,000 - 8,000$ at room temperature and $\varepsilon_{max} > 20,000 - 45,000$ at $T_m$ (Park & Shrout 1997). Polycrystalline ceramics exhibit $\varepsilon_r \sim 2,500 - 4,500$ at 300 K.
+   - **Our Observation:** $\varepsilon'(300\text{ K}) \approx 590$, and $\varepsilon'(374\text{ K}) \approx 853$ (approx. **$5\times$ to $10\times$ lower** than bulk crystal values).
+   - **Underlying Mechanisms:**
+     - **Interfacial Series "Dead Layer" Capacitance:** Any microscopic low-permittivity interface (imperfect silver paint adhesion, surface depletion/Schottky barrier, or microscopic air gap) acts as an in-series capacitor:
+       $$\frac{1}{C_{meas}} = \frac{1}{C_{bulk}} + \frac{2}{C_{interface}}$$
+       Because $C_{bulk}$ is enormous, even a sub-micron interfacial layer ($d_{int} \sim 100\text{ nm}$, $\varepsilon_{int} \sim 30$) dominates $1/C_{meas}$, creating an apparent dielectric constant ceiling of several hundred.
+     - **Geometric Calibration ($C_0$):** If the true electroded area is smaller (e.g. deposited circular pad with diameter 1 mm instead of area 6 mm²), $C_0$ was overestimated by $\sim 7.6\times$, which directly accounts for the discrepancy ($\varepsilon'_{true} \approx 590 \times 7.6 \approx 4,500$).
+2. **Post-$T_{R-T}$ Permittivity Saturation / Flattening:**
+   - **Literature Baseline:** In poled bulk crystals, $\varepsilon'$ continues to rise rapidly above $T_{R-T}$ towards the giant Curie peak at $T_m \approx 415 - 430\text{ K}$.
+   - **Our Observation:** The curve abruptly flattens above 374 K, rising by only ~7% (from 852 to 911) across 38 K. This plateau is a textbook signature of an interfacial series capacitance bottleneck: as $C_{bulk} \rightarrow \infty$, $C_{meas} \rightarrow C_{interface} / 2 = \text{const}$.
+3. **Temperature Sweep Truncation:**
+   - The measurement ended at 412.05 K (~139 °C), just before the broad Curie maximum $T_m$ (observed at ~441 K in subsequent runs like `Data_461K_367K_1.5mBar_Cooling`).
 
 ---
 

@@ -58,7 +58,7 @@ class UnifiedLabGUI:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Wayne Kerr 6510B & Cryo-con 22C — Unified Impedance Spectroscopy")
+        self.root.title("Wayne Kerr 6510B & Cryo-con 22C — Unified Impedance Spectroscopy (PMN-0.3PT)")
         self.root.geometry("1420x860")
         self.root.minsize(1100, 640)
 
@@ -413,7 +413,7 @@ class UnifiedLabGUI:
         ttk.Button(r5, text="Browse", width=7, command=self._browse_dir).pack(side=tk.LEFT, padx=4)
 
     def _build_sample_panel(self, parent):
-        grp = ttk.LabelFrame(parent, text=" 3. PMN-PT Sample Geometry & Analysis ", padding="6 3 6 3")
+        grp = ttk.LabelFrame(parent, text=" 3. PMN-0.3PT Sample Geometry & Analysis ", padding="6 3 6 3")
         grp.pack(fill=tk.X, pady=2)
 
         # Thickness and Area
@@ -443,10 +443,21 @@ class UnifiedLabGUI:
         # Action buttons
         r3 = ttk.Frame(grp)
         r3.pack(fill=tk.X, pady=2)
+        self.btn_load_latest = tk.Button(
+            r3,
+            text="⚡ Load Latest (Data/)",
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#0f172a",
+            relief="groove",
+            command=self.load_latest_pmn_03pt_data
+        )
+        self.btn_load_latest.pack(side=tk.LEFT, padx=2)
+
         self.btn_load_ref = tk.Button(
             r3,
             text="⚡ Load Reference",
-            font=("Segoe UI", 8, "bold"),
+            font=("Segoe UI", 8),
             bg="#f8fafc",
             fg="#0f172a",
             relief="groove",
@@ -607,10 +618,10 @@ class UnifiedLabGUI:
         toolbar4 = NavigationToolbar2Tk(self.canvas4, tab4)
         toolbar4.update()
 
-        # Tab 5: PMN-PT Dielectric Permittivity vs Temperature
+        # Tab 5: PMN-0.3PT Dielectric Permittivity vs Temperature
         tab5 = ttk.Frame(self.notebook)
         self.tab5 = tab5
-        self.notebook.add(tab5, text="  PMN-PT Permittivity vs T  ")
+        self.notebook.add(tab5, text="  PMN-0.3PT Permittivity vs T  ")
 
         # Top control toolbar for Tab 5
         top_bar = ttk.Frame(tab5, padding="4")
@@ -647,7 +658,7 @@ class UnifiedLabGUI:
         toolbar5.update()
 
         # Summary Metrics Treeview / Table
-        summary_frame = ttk.LabelFrame(tab5, text=" Permittivity Summary Metrics (Curie Transition Tm) ", padding="4")
+        summary_frame = ttk.LabelFrame(tab5, text=" Permittivity Summary Metrics (PMN-0.3PT Phase & Curie Transitions) ", padding="4")
         summary_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=4, pady=3)
 
         cols = ("label", "f_exact", "eps_300", "max_eps", "tm")
@@ -814,6 +825,21 @@ class UnifiedLabGUI:
             data["tan_delta"] = new_tan_delta
         if hasattr(self, "ax5"):
             self._update_permittivity_plot()
+
+    def load_latest_pmn_03pt_data(self):
+        """
+        Load the latest PMN-0.3PT experimental dataset from the local Data/ folder
+        (57 sweeps, 300 K to 412 K in 2 K increments).
+        """
+        local_data = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data")
+        if not os.path.exists(local_data):
+            local_data = "Data"
+        if os.path.exists(local_data):
+            self.import_sweep_folder(local_data)
+            self.lbl_dataset_info.config(text="Dataset: PMN-0.3PT Latest Measurement (Data/ - 57 sweeps, 300K-412K)")
+            self.lbl_status.config(text="Loaded PMN-0.3PT latest measurement dataset (Data/).", foreground="#16a34a")
+        else:
+            messagebox.showwarning("Data Folder Missing", f"Data folder not found at:\n{local_data}")
 
     def load_pmn_pt_reference(self):
         """
@@ -1136,7 +1162,7 @@ class UnifiedLabGUI:
             color = data["color"]
             self.ax5.plot(t_vals, eps_vals, marker=marker_style, markersize=4, linewidth=1.8, color=color, label=label)
 
-        self.ax5.set_title(f"Relative Permittivity ε' vs. T (K) for PMN-PT{title_suffix}", fontsize=11, fontweight="bold")
+        self.ax5.set_title(f"Relative Permittivity ε' vs. T (K) for PMN-0.3PT{title_suffix}", fontsize=11, fontweight="bold")
         self.ax5.set_xlabel("Temperature T (K)", fontsize=9, fontweight="semibold")
         self.ax5.set_ylabel("Real Relative Permittivity ε'", fontsize=9, fontweight="semibold")
         self.ax5.grid(True, which="both", linestyle="--", linewidth=0.6, alpha=0.7)

@@ -53,12 +53,13 @@ makes the heater slam to its power limit the moment control is switched on.
 | `data_backup_20260904/` | Independent backup taken mid-study |
 | `Cryocon-22C_and_Wayne_Kerr/` | Unified suite: Wayne Kerr 6510B Impedance Analyzer + Cryo-con 22C |
 
-## Integrated Suite: Wayne Kerr 6510B & Cryo-con 22C
+## Integrated Suite: Wayne Kerr 6510B & Cryo-con 22C (PMN-0.3PT Characterization)
 
-The folder [`Cryocon-22C_and_Wayne_Kerr/`](Cryocon-22C_and_Wayne_Kerr/) contains the unified impedance spectroscopy software:
-- **`unified_gui.py`**: Unified GUI orchestrating simultaneous temperature ramps and multi-frequency dielectric impedance sweeps.
+The folder [`Cryocon-22C_and_Wayne_Kerr/`](Cryocon-22C_and_Wayne_Kerr/) contains the unified impedance spectroscopy software used for characterizing **PMN-0.3PT** ($0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$):
+- **`unified_gui.py`**: Unified GUI orchestrating simultaneous temperature ramps and multi-frequency dielectric impedance sweeps with live $\varepsilon'(T)$ visualization.
+- **Latest Data**: Subfolder [`Cryocon-22C_and_Wayne_Kerr/Data/`](Cryocon-22C_and_Wayne_Kerr/Data/) contains the latest 57-point dataset (300 K to 412 K) for PMN-0.3PT.
 - **Launcher**: Run `Cryocon-22C_and_Wayne_Kerr\run_gui.bat` or `python Cryocon-22C_and_Wayne_Kerr/unified_gui.py`.
-- **Documentation**: See [`Cryocon-22C_and_Wayne_Kerr/README.md`](Cryocon-22C_and_Wayne_Kerr/README.md) for Wayne Kerr GPIB setup, Cryocon serial wiring, and automated run workflows.
+- **Documentation**: See [`Cryocon-22C_and_Wayne_Kerr/README.md`](Cryocon-22C_and_Wayne_Kerr/README.md) and [`LEARNING_LOG.md`](Cryocon-22C_and_Wayne_Kerr/LEARNING_LOG.md) for full physical and operational details.
 
 ## Scripts
 

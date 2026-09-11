@@ -1,6 +1,21 @@
 # Wayne Kerr 6510B & Cryo-con 22C — Unified Impedance Spectroscopy Suite
 
-Automated temperature-dependent dielectric spectroscopy suite unifying the **Cryo-con 22C Temperature Controller** (`COM5`) and the **Wayne Kerr 6510B Precision Impedance Analyzer** (`GPIB0::6::INSTR`) for PMN-PT crystal characterization from 300 K to 470 K (with quick-test support at 299 K & 300 K).
+Automated temperature-dependent dielectric spectroscopy suite unifying the **Cryo-con 22C Temperature Controller** (`COM5`) and the **Wayne Kerr 6510B Precision Impedance Analyzer** (`GPIB0::6::INSTR`) for **PMN-0.3PT** ($0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$) crystal characterization from 300 K to 470 K (with quick-test support at 299 K & 300 K).
+
+---
+
+## 🧪 Sample Under Test: PMN-0.3PT (0.70PMN-0.30PT)
+
+- **Material:** $0.70\text{Pb}(\text{Mg}_{1/3}\text{Nb}_{2/3})\text{O}_3 - 0.30\text{PbTiO}_3$ ($x = 0.30$), a relaxor-based ferroelectric on the rhombohedral side of the Morphotropic Phase Boundary (MPB).
+- **Latest Measurement Location:** [`Cryocon-22C_and_Wayne_Kerr/Data/`](Data/)
+  - **Recorded Sweeps:** 57 full-spectrum impedance files from **300.0 K to 412.0 K** in 2.0 K steps (`300K_100mV_*.dat` to `412K_100mV_*.dat`).
+  - **Sweep Parameters:** 200 logarithmic frequency points from **20 Hz to 10 MHz**, 100 mV AC excitation RMS.
+- **Sample Geometry & Vacuum Capacitance:**
+  - Standard pre-populated defaults: Thickness $d = 0.30\text{ mm}$ ($300\text{ }\mu\text{m}$), Electrode Area $A = 6.00\text{ mm}^2$.
+  - Vacuum Capacitance: $C_0 = \varepsilon_0 \frac{A}{d} \approx 0.17708\text{ pF}$.
+- **Key Phase Transitions & Literature Signatures:**
+  - **Rhombohedral-to-Tetragonal Transition ($T_{R-T}$):** $\approx 370 - 374\text{ K}$ ($97 - 101^\circ\text{C}$). Manifests as a distinct inflection/kink anomaly on the permittivity curve.
+  - **Dielectric Maximum ($T_m$ / Curie Region):** $\approx 410 - 440\text{ K}$ ($137 - 167^\circ\text{C}$).
 
 ---
 
@@ -28,18 +43,18 @@ This workspace unifies and coordinates the code, drivers, and lessons learned fr
 
 3. **Unified Production Workspace:**
    - **Path:** `C:\Users\sahgy\Downloads\Cryocon-22C_and_Wayne_Kerr`
-   - **Integrated Capability:** Desktop GUI ([`unified_gui.py`](unified_gui.py)), headless orchestrator ([`unified_experiment_runner.py`](unified_experiment_runner.py)), automated verification suite ([`verify_unified_gui.py`](verify_unified_gui.py)), and 5-minute PMN-PT crystal thermal soak watchdog.
+   - **Integrated Capability:** Desktop GUI ([`unified_gui.py`](unified_gui.py)), headless orchestrator ([`unified_experiment_runner.py`](unified_experiment_runner.py)), automated verification suite ([`verify_unified_gui.py`](verify_unified_gui.py)), and 5-minute PMN-0.3PT crystal thermal soak watchdog.
 
-4. **PMN-PT Dielectric Permittivity Suite:**
+4. **PMN-0.3PT Dielectric Permittivity Suite:**
    - **Path:** `C:\Users\sahgy\Downloads\Impedance_PMN-PT`
    - **Extracted Physics & Characterization:**
      - Real relative permittivity: $\varepsilon'(T) = \frac{-X}{\omega C_0 (R^2 + X^2)}$ where $C_0 = \varepsilon_0 \frac{A}{d} \approx 0.177\text{ pF}$ ($d=0.30\text{ mm}, A=6.00\text{ mm}^2$).
      - Dual-mode interactive visualization matching `PMN_PT_Dielectric_Permittivity_Analysis.ipynb`:
        - **Figure (a)**: All Frequencies (1 kHz to 10 MHz)
        - **Figure (b)**: Bulk Dielectric Response (1 kHz to 1 MHz)
-     - Dynamic nearest-frequency decade approximation: automatically extracts optimal points from 200-pt (`Wayne_kerr_2500B`) and 201-pt (`Impedance_PMN-PT`) sweeps.
+     - Dynamic nearest-frequency decade approximation: automatically extracts optimal points from 200-pt (`Wayne_kerr_2500B` and `Data/`) and 201-pt (`Impedance_PMN-PT`) sweeps.
      - Curie transition summary metrics ($T_m$ peak temperature, max $\varepsilon'$, $\varepsilon'$ at 300 K) matching `permittivity_summary.csv`.
-     - 1-click PMN-PT reference loader and live multi-stage sweep accumulation.
+     - 1-click PMN-0.3PT reference loader and live multi-stage sweep accumulation.
 
 ---
 
@@ -86,12 +101,12 @@ python unified_gui.py
    - **Dual-Axis Display:** Stage Temperature (solid blue `#0066cc`) and Setpoint (dashed orange `#e65100`) on the primary left Y-axis in Kelvin; Heater Output Power % (purple `#8e24aa`) on the secondary right Y-axis via `twinx`.
    - **Interactive Toolbar:** Filter history using the **Time Window** selector (`2 min`, `5 min`, `10 min`, `15 min`, `30 min`, `All`), toggle individual traces via checkbuttons (`Temp A`, `Setpoint`, `Heater %`), toggle `Autoscale Y` and `Autoscale Pwr`, and click `Clear Chart` or `⛶ Fit Scale`.
    - Continuously updates during background idle monitoring and across all experiment stages (`RAMPING`, `SOAKING`, `SWEEPING`).
-6. **PMN-PT Dielectric Permittivity Analysis:**
-   - Switch to the **PMN-PT Permittivity vs T** tab (Tab 5) to observe Real Relative Permittivity $\varepsilon'$ across 1 kHz, 10 kHz, 100 kHz, 1 MHz, and 10 MHz.
-   - Click **⚡ Load Reference** to inspect the 33-point benchmark curves (300 K to 460 K) from `C:\Users\sahgy\Downloads\Impedance_PMN-PT`.
+6. **PMN-0.3PT Dielectric Permittivity Analysis:**
+   - Switch to the **PMN-0.3PT Permittivity vs T** tab (Tab 5) to observe Real Relative Permittivity $\varepsilon'$ across 1 kHz, 10 kHz, 100 kHz, 1 MHz, and 10 MHz.
+   - Click **⚡ Load Latest (Data/)** or **⚡ Load Reference** to inspect permittivity curves (including the latest 57-point dataset from 300 K to 412 K).
    - Toggle between **All Frequencies (1 kHz - 10 MHz)** [Fig a] and **Bulk Response (1 kHz - 1 MHz)** [Fig b].
    - Adjust sample thickness $d$ or electrode area $A$ in Section 3 to see live recalculated permittivity curves and $C_0$.
-   - Inspect the Curie transition summary table ($T_m$, max $\varepsilon'$, $\varepsilon'$ at 300 K) and export publication-ready data via **💾 Export CSV**.
+   - Inspect the Curie and phase transition summary table ($T_m$, $T_{R-T}$, max $\varepsilon'$, $\varepsilon'$ at 300 K) and export publication-ready data via **💾 Export CSV**.
 7. **⏱ Live Estimated Experiment Duration Engine:**
    - Located in Section 1 (**Temperature Ramp & Soak Control**), the live status badge dynamically recalculates and displays the exact total estimated run time and phase breakdown:
      $$T_{\text{total}} = \frac{\Delta T_{\text{total}}}{\text{Rate}} + (N \times t_{\text{soak}}) + N \times \left( \frac{N_{\text{pts}} \times 0.12\text{ s} + 20\text{ s}}{60} \right)$$
