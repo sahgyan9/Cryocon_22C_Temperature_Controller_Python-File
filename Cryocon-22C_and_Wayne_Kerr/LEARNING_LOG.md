@@ -540,3 +540,36 @@ made the 415 K stage in the previous run take 24.7 min instead of 12.6: at the O
 470 K **is** reachable in air at a 100% ceiling; the ramp never starves. Vacuum is
 still preferable (3.2x less heater power, and the P/I/D were validated there), but it
 is no longer a blocker for this range.
+
+---
+
+## 2026-09-29: Unified GUI Temperature Range Generator & Real-Time Decimal Avoidance
+
+### Context & User Need
+In previous iterations of `unified_gui.py`, temperature stage targets had to be entered as a manual comma-separated string (e.g., `300, 305, 310, ..., 470`), which was error-prone and tedious for custom ranges (such as stepping from 300 K to 450 K in 2 K increments = 76 points).
+
+### Architecture & Implementation
+1. **Interactive Range Spinbox Controls**:
+   - `Start Temp (K)`: Default `300 K`
+   - `End Temp (K)`: Default `450 K`
+   - `Step (K)`: Default `2 K` (integer spinbox, supports 1, 2, 3, etc.)
+   - `[Apply Range]` button for explicit re-evaluation.
+   - `Target Temps (K)` entry retains continuous visibility and transparency into the generated list.
+2. **Whole Integer Enforcement**:
+   - Enforces strictly whole integer setpoints (`is_integer()`); floating-point decimals in Start/End/Step inputs trigger an explicit warning.
+3. **Real-Time Remainder Detection & Nearest-Point Guidance**:
+   - When $(T_\text{end} - T_\text{start}) \pmod{\text{Step}} \ne 0$, a decimal step ratio results (e.g., $300\text{ K} \to 320\text{ K}$ with step $3\text{ K}$ yields $20 / 3 = 6.67$ steps).
+   - Computes the nearest integer stop temperature:
+     $$T_\text{nearest} = T_\text{start} + \text{round}\left(\frac{T_\text{end} - T_\text{start}}{\text{Step}}\right) \times \text{Step} = 300 + 7 \times 3 = 321\text{ K}$$
+   - Renders live warning feedback in amber/red (`#b91c1c`):
+     `⚠️ Decimal step: (320 - 300) / 3 = 6.67 steps. Change End Temp to nearest point 321 K (7 steps) to avoid decimals.`
+   - Dynamically mounts an action button: `[Change End to 321 K]`. Clicking it snaps `temp_end_var` to `321`, cleanly turning feedback green (`✓ Valid: 300 to 321 K in steps of 3 K (8 points). No decimals.`) and generating `300, 303, ..., 321`.
+4. **Experiment Launch Failsafe**:
+   - If the operator starts the experiment while an uncorrected decimal step exists, an interactive `messagebox.askyesno` dialog alerts the operator, shows the nearest integer stop temperature, and offers to automatically snap and continue.
+5. **Preset Integration**:
+   - Added `Default: 300-450 K (Step 2)` preset.
+   - Maintained full compatibility with `Full: 300 to 470 K (Step 5)` and `Test: 299, 300 K`.
+6. **Automated Verification**:
+   - Added test 2d in `verify_unified_gui.py` asserting default generation (76 points), decimal detection ($300 \to 320$ step 3), snapping to $321\text{ K}$, and clean execution.
+   - **Result**: All 7 verification test suites passed with 100% success.
+

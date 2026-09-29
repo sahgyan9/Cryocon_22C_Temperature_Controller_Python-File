@@ -64,7 +64,9 @@ This workspace unifies and coordinates the code, drivers, and lessons learned fr
 |---|---|---|
 | **Cryocon Port** | `COM5` (57,600 baud, 8N1) | Upgraded high-speed communication |
 | **Wayne Kerr VISA** | `GPIB0::6::INSTR` | Primary IEEE-488.2 interface |
-| **Target Temperatures** | `300 to 470 K` (Step: 5 K) | Or quick-test preset: `299, 300 K` |
+| **Temperature Range Generator** | **Start: 300 K, End: 450 K, Step: 2 K** | Auto-generates integer sequence (76 points) without typing long lists |
+| **Decimal Step Avoidance** | **Enabled (Real-time guidance)** | Prevents non-integer step remainders; snaps end temp to nearest point |
+| **Target Temperature Presets** | `Default: 300-450 K (Step 2)`, `Full: 300-470 K (Step 5)`, `Test: 299, 300 K` | Instant one-click range population |
 | **Sample Thermal Soak** | **5.0 minutes** (300 seconds) | Holds within $\pm 0.10$ K for PMN-PT thermal equilibrium |
 | **Settle Band** | `±0.10 K` | Settle detection tolerance window |
 | **Ramp Rate** | `1.0 K/min` | Clean linear ramp with zero overshoot |
@@ -86,9 +88,10 @@ Double-click `run_gui.bat` or run from terminal:
 python unified_gui.py
 ```
 1. Click **Connect Hardware** (or check **Mock Mode** for offline testing).
-2. Use **Presets**:
-   - Click `Test: 299, 300 K` for the immediate test run.
-   - Or click `Full: 300 to 470 K (Step 5)` for the complete run.
+2. Configure **Temperature Range**:
+   - Use the **Start**, **End**, and **Step** inputs (default: **300 K to 450 K with step 2 K**).
+   - Or click **Presets**: `Default: 300-450 K (Step 2)`, `Full: 300 to 470 K (Step 5)`, or `Test: 299, 300 K`.
+   - **Automatic Decimal Prevention:** If an End Temperature cannot be reached evenly by the Step (e.g. 300 K to 320 K with step 3 K = 6.67 steps), the GUI immediately displays real-time feedback and offers a one-click button: `[Change End to 321 K]` to snap to the nearest integer stop temperature.
 3. Click **▶ START EXPERIMENT**.
 4. The system will automatically:
    - Ramp to the first setpoint (e.g. 299 K).

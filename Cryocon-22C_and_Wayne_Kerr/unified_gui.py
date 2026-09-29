@@ -103,6 +103,13 @@ class UnifiedLabGUI:
         self.permittivity_view_var = tk.StringVar(value="all")  # "all" or "bulk"
         self.permittivity_data: Dict[float, Dict[str, Any]] = {}
 
+        # Temperature Range Generator State (Start, End, Step without decimals)
+        self._suppress_range_sync: bool = False
+        self._has_decimal_step: bool = False
+        self._cached_nearest_end: Optional[int] = None
+        self._last_step_ratio: float = 0.0
+        self._last_generated_targets_str: str = ""
+
         self._build_style()
         self._build_ui()
         self._start_ui_dispatcher()
@@ -255,6 +262,10 @@ class UnifiedLabGUI:
         self.soak_min_var.trace_add("write", self._update_estimated_time)
         self.target_temps_var.trace_add("write", self._update_estimated_time)
         self.num_pts_var.trace_add("write", self._update_estimated_time)
+        self.temp_start_var.trace_add("write", self._on_temp_range_changed)
+        self.temp_end_var.trace_add("write", self._on_temp_range_changed)
+        self.temp_step_var.trace_add("write", self._on_temp_range_changed)
+        self._on_temp_range_changed()
         self._update_estimated_time()
 
     def _build_thermal_panel(self, parent):
@@ -265,16 +276,60 @@ class UnifiedLabGUI:
         preset_frame = ttk.Frame(grp)
         preset_frame.pack(fill=tk.X, pady=1)
         ttk.Label(preset_frame, text="Presets:").pack(side=tk.LEFT, padx=2)
-        btn_test = ttk.Button(preset_frame, text="Test: 299, 300 K", command=self._set_preset_test)
-        btn_test.pack(side=tk.LEFT, padx=3)
+        btn_default = ttk.Button(preset_frame, text="Default: 300-450 K (Step 2)", command=self._set_preset_default_range)
+        btn_default.pack(side=tk.LEFT, padx=2)
         btn_full = ttk.Button(preset_frame, text="Full: 300 to 470 K (Step 5)", command=self._set_preset_full)
-        btn_full.pack(side=tk.LEFT, padx=3)
+        btn_full.pack(side=tk.LEFT, padx=2)
+        btn_test = ttk.Button(preset_frame, text="Test: 299, 300 K", command=self._set_preset_test)
+        btn_test.pack(side=tk.LEFT, padx=2)
+
+        # Temperature Range Generator (Start, End, Step)
+        range_frame = ttk.Frame(grp)
+        range_frame.pack(fill=tk.X, pady=2)
+
+        ttk.Label(range_frame, text="Start:").pack(side=tk.LEFT, padx=(0, 2))
+        self.temp_start_var = tk.StringVar(value="300")
+        self.spn_temp_start = ttk.Spinbox(range_frame, textvariable=self.temp_start_var, from_=10.0, to=600.0, increment=1.0, width=5)
+        self.spn_temp_start.pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(range_frame, text="K").pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Label(range_frame, text="End:").pack(side=tk.LEFT, padx=(2, 2))
+        self.temp_end_var = tk.StringVar(value="450")
+        self.spn_temp_end = ttk.Spinbox(range_frame, textvariable=self.temp_end_var, from_=10.0, to=600.0, increment=1.0, width=5)
+        self.spn_temp_end.pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(range_frame, text="K").pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Label(range_frame, text="Step:").pack(side=tk.LEFT, padx=(2, 2))
+        self.temp_step_var = tk.StringVar(value="2")
+        self.spn_temp_step = ttk.Spinbox(range_frame, textvariable=self.temp_step_var, from_=1.0, to=50.0, increment=1.0, width=4)
+        self.spn_temp_step.pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Label(range_frame, text="K").pack(side=tk.LEFT, padx=(0, 5))
+
+        btn_apply = ttk.Button(range_frame, text="Apply Range", width=11, command=self._apply_temp_range)
+        btn_apply.pack(side=tk.LEFT, padx=2)
+
+        # Dynamic Decimal Feedback & Adjustment Guidance Row
+        self.feedback_frame = ttk.Frame(grp)
+        self.feedback_frame.pack(fill=tk.X, pady=(1, 2))
+        self.lbl_temp_feedback = ttk.Label(
+            self.feedback_frame,
+            text="",
+            font=("Segoe UI", 8),
+            wraplength=310
+        )
+        self.lbl_temp_feedback.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.btn_fix_end_temp = ttk.Button(
+            self.feedback_frame,
+            text="Change End Temp",
+            command=self._fix_end_temp_to_nearest
+        )
 
         # Target temperature list entry
         t_row = ttk.Frame(grp)
         t_row.pack(fill=tk.X, pady=2)
         ttk.Label(t_row, text="Target Temps (K):", width=15).pack(side=tk.LEFT)
-        self.target_temps_var = tk.StringVar(value="300, 305, 310, 315, 320, 325, 330, 335, 340, 345, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 445, 450, 455, 460, 465, 470")
+        self.target_temps_var = tk.StringVar(value="")
         ttk.Entry(t_row, textvariable=self.target_temps_var).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # Thermal Soak Delay (Thermal Equilibration for PMN-PT)
@@ -1249,19 +1304,210 @@ class UnifiedLabGUI:
             messagebox.showerror("Export Failed", f"Could not export CSV:\n{e}")
 
     # -------------------------------------------------------------------------
-    # Preset Handlers
+    # Temperature Range & Preset Handlers
     # -------------------------------------------------------------------------
+
+    def _on_temp_range_changed(self, *args):
+        """
+        Validates Start Temp, End Temp, and Step entries.
+        Enforces:
+        1. No decimals in inputs (must be whole integers).
+        2. Positive step (>= 1 K).
+        3. End Temp must be greater than Start Temp.
+        4. Detects non-integer step division: if (End - Start) % Step != 0,
+           gives clear feedback with the nearest integer stop temperature
+           (e.g., 300 to 320 with step 3 -> recommends nearest stop of 321 K).
+        5. Automatically generates the comma-separated target temperature sequence
+           when the range divides evenly without decimals.
+        """
+        if getattr(self, "_suppress_range_sync", False):
+            return
+
+        if not hasattr(self, "temp_start_var") or not hasattr(self, "temp_end_var") or not hasattr(self, "temp_step_var"):
+            return
+
+        start_s = self.temp_start_var.get().strip()
+        end_s = self.temp_end_var.get().strip()
+        step_s = self.temp_step_var.get().strip()
+
+        # If any field is empty while the user is typing, show neutral hint
+        if not start_s or not end_s or not step_s:
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(
+                    text="Enter whole numbers for Start, End, and Step.",
+                    foreground="#64748b"
+                )
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+            return
+
+        # Check for explicit decimal points in input strings
+        if "." in start_s or "." in end_s or "." in step_s:
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(
+                    text="⚠️ Decimals are not permitted. Please use whole integers (e.g. 300, 320, 2).",
+                    foreground="#b91c1c"
+                )
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+            return
+
+        # Parse integer values
+        try:
+            start_val = int(start_s)
+            end_val = int(end_s)
+            step_val = int(step_s)
+        except ValueError:
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(
+                    text="⚠️ Invalid input. Temperatures and step must be whole numbers.",
+                    foreground="#b91c1c"
+                )
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+            return
+
+        if step_val <= 0:
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(
+                    text="⚠️ Step must be a positive whole number (>= 1 K).",
+                    foreground="#b91c1c"
+                )
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+            return
+
+        if end_val <= start_val:
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(
+                    text=f"⚠️ End Temp ({end_val} K) must be greater than Start Temp ({start_val} K).",
+                    foreground="#b91c1c"
+                )
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+            return
+
+        span = end_val - start_val
+        remainder = span % step_val
+
+        if remainder != 0:
+            n_float = span / step_val
+            nearest_steps = max(1, int(math.floor(n_float + 0.5)))
+            nearest_end = start_val + nearest_steps * step_val
+            self._cached_nearest_end = nearest_end
+            self._last_step_ratio = n_float
+            self._has_decimal_step = True
+
+            feedback_text = (
+                f"⚠️ Decimal step: ({end_val} - {start_val}) / {step_val} = {n_float:.2f} steps.\n"
+                f"Change End Temp to nearest point {nearest_end} K ({nearest_steps} steps) to avoid decimals."
+            )
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(text=feedback_text, foreground="#b91c1c")
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.config(
+                    text=f"Change End to {nearest_end} K",
+                    state=tk.NORMAL
+                )
+                self.btn_fix_end_temp.pack(side=tk.RIGHT, padx=2)
+        else:
+            self._has_decimal_step = False
+            self._cached_nearest_end = None
+            if hasattr(self, "btn_fix_end_temp"):
+                self.btn_fix_end_temp.pack_forget()
+
+            targets = list(range(start_val, end_val + 1, step_val))
+            targets_str = ", ".join(str(t) for t in targets)
+            self._last_generated_targets_str = targets_str
+
+            self._suppress_range_sync = True
+            try:
+                self.target_temps_var.set(targets_str)
+            finally:
+                self._suppress_range_sync = False
+
+            feedback_text = (
+                f"✓ Valid: {start_val} to {end_val} K in steps of {step_val} K "
+                f"({len(targets)} points: {start_val}, {start_val + step_val if len(targets) > 1 else start_val}, ..., {end_val}). No decimals."
+            )
+            if hasattr(self, "lbl_temp_feedback"):
+                self.lbl_temp_feedback.config(text=feedback_text, foreground="#15803d")
+
+    def _fix_end_temp_to_nearest(self):
+        """Snap End Temp to the nearest whole step to eliminate decimal steps."""
+        if hasattr(self, "_cached_nearest_end") and self._cached_nearest_end is not None:
+            self.temp_end_var.set(str(self._cached_nearest_end))
+
+    def _apply_temp_range(self):
+        """Explicitly apply and regenerate the target temperature sequence."""
+        self._on_temp_range_changed()
+        if getattr(self, "_has_decimal_step", False) and getattr(self, "_cached_nearest_end", None) is not None:
+            nearest = self._cached_nearest_end
+            ans = messagebox.askyesno(
+                "Decimal Step - Adjust End Temperature?",
+                f"End temperature {self.temp_end_var.get()} K results in decimal steps.\n\n"
+                f"Nearest valid stop temperature to avoid decimals is {nearest} K.\n\n"
+                f"Would you like to adjust End Temp to {nearest} K?",
+                icon="warning"
+            )
+            if ans:
+                self.temp_end_var.set(str(nearest))
+
+    def _set_preset_default_range(self):
+        """Set default range: 300 K to 450 K with step 2 K."""
+        self._suppress_range_sync = True
+        try:
+            self.temp_start_var.set("300")
+            self.temp_end_var.set("450")
+            self.temp_step_var.set("2")
+        finally:
+            self._suppress_range_sync = False
+        self._on_temp_range_changed()
+        self.soak_min_var.set(5.0)
+        self.lbl_file_preview.config(text="300K_100mV_<HH-MM-SS>.dat")
 
     def _set_preset_test(self):
         """Set quick test targets: 299 K, 300 K."""
+        self._suppress_range_sync = True
+        try:
+            self.temp_start_var.set("299")
+            self.temp_end_var.set("300")
+            self.temp_step_var.set("1")
+        finally:
+            self._suppress_range_sync = False
+        self._has_decimal_step = False
+        self._cached_nearest_end = None
+        if hasattr(self, "btn_fix_end_temp"):
+            self.btn_fix_end_temp.pack_forget()
         self.target_temps_var.set("299, 300")
+        if hasattr(self, "lbl_temp_feedback"):
+            self.lbl_temp_feedback.config(
+                text="✓ Preset: 299 to 300 K (step 1 K, 2 points). No decimals.",
+                foreground="#15803d"
+            )
         self.soak_min_var.set(5.0)
         self.lbl_file_preview.config(text="299K_100mV_<HH-MM-SS>.dat")
 
     def _set_preset_full(self):
         """Set full production targets: 300 K to 470 K with step 5 K."""
+        self._suppress_range_sync = True
+        try:
+            self.temp_start_var.set("300")
+            self.temp_end_var.set("470")
+            self.temp_step_var.set("5")
+        finally:
+            self._suppress_range_sync = False
+        self._has_decimal_step = False
+        self._cached_nearest_end = None
+        if hasattr(self, "btn_fix_end_temp"):
+            self.btn_fix_end_temp.pack_forget()
         full_list = [f"{t}" for t in range(300, 475, 5)]
         self.target_temps_var.set(", ".join(full_list))
+        if hasattr(self, "lbl_temp_feedback"):
+            self.lbl_temp_feedback.config(
+                text="✓ Preset: 300 to 470 K (step 5 K, 35 points). No decimals.",
+                foreground="#15803d"
+            )
         self.soak_min_var.set(5.0)
         self.lbl_file_preview.config(text="300K_100mV_<HH-MM-SS>.dat")
 
@@ -1528,9 +1774,38 @@ class UnifiedLabGUI:
             )
             return
 
+        # Check if Start/End/Step range has an uncorrected decimal step
+        if getattr(self, "_has_decimal_step", False) and getattr(self, "_cached_nearest_end", None) is not None:
+            nearest = self._cached_nearest_end
+            ans = messagebox.askyesno(
+                "Decimal Step Detected - Adjust End Temperature?",
+                f"End temperature {self.temp_end_var.get()} K results in a decimal step ({getattr(self, '_last_step_ratio', 0.0):.2f} steps).\n\n"
+                f"The nearest valid stop temperature to avoid decimals is {nearest} K.\n\n"
+                f"Would you like to change End Temperature to {nearest} K and proceed?",
+                icon="warning"
+            )
+            if ans:
+                self.temp_end_var.set(str(nearest))
+                self._on_temp_range_changed()
+            else:
+                return
+
         try:
             raw_targets = self.target_temps_var.get().split(",")
-            targets = [float(x.strip()) for x in raw_targets if x.strip()]
+            targets = []
+            for x in raw_targets:
+                x_str = x.strip()
+                if not x_str:
+                    continue
+                val = float(x_str)
+                if not val.is_integer():
+                    messagebox.showerror(
+                        "Decimal Temperature Not Allowed",
+                        f"Target temperature '{x_str}' contains a decimal.\n\n"
+                        f"All temperature setpoints must be whole integer numbers without decimals."
+                    )
+                    return
+                targets.append(float(int(val)))
             if not targets:
                 raise ValueError("No valid targets entered.")
         except Exception as e:

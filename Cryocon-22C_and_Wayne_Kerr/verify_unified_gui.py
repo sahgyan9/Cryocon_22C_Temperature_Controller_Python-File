@@ -187,6 +187,33 @@ def run_all_verifications():
         print(f"  - Live Update after Soak=2.0 min:   '{est_txt_soak2}'")
         assert "3h" in est_txt_soak2 or "180" in est_txt_soak2 or "181" in est_txt_soak2, f"Expected ~3h 01m, got '{est_txt_soak2}'"
 
+        # 2d: Verify Start/End/Step range generation and decimal step avoidance
+        print("  - Verifying Temperature Range (Start=300K, End=450K, Step=2K default)...")
+        app._set_preset_default_range()
+        root.update()
+        def_targets = [int(x.strip()) for x in app.target_temps_var.get().split(",")]
+        assert def_targets[0] == 300 and def_targets[-1] == 450 and len(def_targets) == 76
+        assert app._has_decimal_step is False
+
+        # Test non-integer step remainder (300 to 320 with step 3 -> nearest 321 K)
+        print("  - Verifying Decimal Step Detection & Feedback (300 to 320 with step 3)...")
+        app.temp_start_var.set("300")
+        app.temp_end_var.set("320")
+        app.temp_step_var.set("3")
+        root.update()
+        assert app._has_decimal_step is True
+        assert app._cached_nearest_end == 321
+        fb_txt = app.lbl_temp_feedback.cget("text")
+        assert "321" in fb_txt and "Decimal step" in fb_txt
+
+        # Snap / adjust to nearest end temperature
+        app._fix_end_temp_to_nearest()
+        root.update()
+        assert app.temp_end_var.get() == "321"
+        assert app._has_decimal_step is False
+        fixed_targets = [int(x.strip()) for x in app.target_temps_var.get().split(",")]
+        assert fixed_targets == [300, 303, 306, 309, 312, 315, 318, 321]
+
         # Reset parameters and switch to Test Preset
         app.ramp_rate_var.set(1.0)
         app.soak_min_var.set(5.0)
@@ -196,7 +223,7 @@ def run_all_verifications():
         print(f"  - Live Update after Test Preset (299, 300K): '{est_txt_test}'")
         assert "m" in est_txt_test, f"Expected short duration for test preset, got '{est_txt_test}'"
 
-        print("  -> [PASS] Preset switching & live estimated run time reactivity verified!")
+        print("  -> [PASS] Preset switching, range generator & live estimated run time reactivity verified!")
 
         # ---------------------------------------------------------------------
         # TEST 3: Mock Connection & Telemetry Monitoring
